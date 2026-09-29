@@ -1,0 +1,8 @@
+com/alnafi/eip/model/Order.class
+com/alnafi/eip/processors/OrderAggregationStrategy.class
+com/alnafi/eip/routes/ContentBasedRouterRoute.class
+com/alnafi/eip/controller/OrderController.class
+com/alnafi/eip/model/BatchOrder.class
+com/alnafi/eip/routes/AggregatorRoute.class
+com/alnafi/eip/EipPatternsApplication.class
+com/alnafi/eip/routes/SplitterRoute.class

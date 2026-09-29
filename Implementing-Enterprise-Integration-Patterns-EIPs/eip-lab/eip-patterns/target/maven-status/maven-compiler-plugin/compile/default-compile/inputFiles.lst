@@ -1,0 +1,8 @@
+/home/centos/eip-lab/eip-patterns/src/main/java/com/alnafi/eip/controller/OrderController.java
+/home/centos/eip-lab/eip-patterns/src/main/java/com/alnafi/eip/routes/ContentBasedRouterRoute.java
+/home/centos/eip-lab/eip-patterns/src/main/java/com/alnafi/eip/model/Order.java
+/home/centos/eip-lab/eip-patterns/src/main/java/com/alnafi/eip/processors/OrderAggregationStrategy.java
+/home/centos/eip-lab/eip-patterns/src/main/java/com/alnafi/eip/EipPatternsApplication.java
+/home/centos/eip-lab/eip-patterns/src/main/java/com/alnafi/eip/model/BatchOrder.java
+/home/centos/eip-lab/eip-patterns/src/main/java/com/alnafi/eip/routes/SplitterRoute.java
+/home/centos/eip-lab/eip-patterns/src/main/java/com/alnafi/eip/routes/AggregatorRoute.java

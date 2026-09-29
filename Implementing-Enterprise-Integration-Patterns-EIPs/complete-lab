@@ -1,0 +1,693 @@
+Lab: Implementing Enterprise Integration Patterns with Apache Camel
+Objectives
+By the end of this lab, you will be able to:
+
+Implement the Content-Based Router pattern to route order messages to different processing paths based on message content
+Apply the Splitter pattern to break a batch of orders into individual messages for independent processing
+Apply the Aggregator pattern to combine related order messages back into a single grouped result, persisted to a file for verification
+Configure and wire Apache Camel routes using Java DSL inside a Spring Boot application
+Test each pattern with curl and verify correct behavior from application logs and a persisted output file
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Java programming
+Familiarity with the Maven build tool
+Understanding of REST APIs, HTTP, and JSON
+Basic command-line skills
+Required tools (install if not already present):
+
+java -version    # requires OpenJDK 11 or later
+mvn -version     # requires Maven 3.8+
+curl --version
+If any of these are missing, install them with your system package manager, for example:
+
+sudo apt-get update && sudo apt-get install -y openjdk-11-jdk maven curl
+Task 1: Create the Project and Data Model
+Task 1.1: Generate the Project Structure
+Create a new Maven project:
+mkdir -p eip-lab && cd eip-lab
+mvn archetype:generate -DgroupId=com.alnafi.eip \
+  -DartifactId=eip-patterns \
+  -DarchetypeArtifactId=maven-archetype-quickstart \
+  -DarchetypeVersion=1.4 \
+  -DinteractiveMode=false
+cd eip-patterns
+rm -rf src/main/java/com/alnafi/eip/App.java src/test
+Create the package layout:
+mkdir -p src/main/java/com/alnafi/eip/model
+mkdir -p src/main/java/com/alnafi/eip/routes
+mkdir -p src/main/java/com/alnafi/eip/processors
+mkdir -p src/main/java/com/alnafi/eip/controller
+mkdir -p src/main/resources
+mkdir -p data/aggregated-orders
+Task 1.2: Configure Maven Dependencies
+Replace the content of pom.xml with the following complete file:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.alnafi.eip</groupId>
+    <artifactId>eip-patterns</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <camel.version>3.20.2</camel.version>
+        <spring.boot.version>2.7.8</spring.boot.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.camel.springboot</groupId>
+                <artifactId>camel-spring-boot-dependencies</artifactId>
+                <version>${camel.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-jackson-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-direct-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-file-starter</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring.boot.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Deliverable: running mvn clean compile completes with BUILD SUCCESS.
+
+Task 1.3: Create the Order Data Model
+Create src/main/java/com/alnafi/eip/model/Order.java:
+
+package com.alnafi.eip.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public class Order {
+    @JsonProperty("orderId")
+    private String orderId;
+
+    @JsonProperty("customerType")
+    private String customerType;
+
+    @JsonProperty("amount")
+    private double amount;
+
+    @JsonProperty("priority")
+    private String priority;
+
+    @JsonProperty("items")
+    private String[] items;
+
+    public Order() {}
+
+    public Order(String orderId, String customerType, double amount, String priority, String[] items) {
+        this.orderId = orderId;
+        this.customerType = customerType;
+        this.amount = amount;
+        this.priority = priority;
+        this.items = items;
+    }
+
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+
+    public String getCustomerType() { return customerType; }
+    public void setCustomerType(String customerType) { this.customerType = customerType; }
+
+    public double getAmount() { return amount; }
+    public void setAmount(double amount) { this.amount = amount; }
+
+    public String getPriority() { return priority; }
+    public void setPriority(String priority) { this.priority = priority; }
+
+    public String[] getItems() { return items; }
+    public void setItems(String[] items) { this.items = items; }
+
+    @Override
+    public String toString() {
+        return String.format("Order{orderId='%s', customerType='%s', amount=%.2f, priority='%s'}",
+                           orderId, customerType, amount, priority);
+    }
+}
+Also create the batch wrapper model used by the Splitter task, src/main/java/com/alnafi/eip/model/BatchOrder.java:
+
+package com.alnafi.eip.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.List;
+
+public class BatchOrder {
+    @JsonProperty("batchId")
+    private String batchId;
+
+    @JsonProperty("orders")
+    private List<Order> orders;
+
+    public BatchOrder() {}
+
+    public BatchOrder(String batchId, List<Order> orders) {
+        this.batchId = batchId;
+        this.orders = orders;
+    }
+
+    public String getBatchId() { return batchId; }
+    public void setBatchId(String batchId) { this.batchId = batchId; }
+
+    public List<Order> getOrders() { return orders; }
+    public void setOrders(List<Order> orders) { this.orders = orders; }
+
+    @Override
+    public String toString() {
+        return String.format("BatchOrder{batchId='%s', orderCount=%d}",
+                           batchId, orders != null ? orders.size() : 0);
+    }
+}
+Deliverable: both files compile with mvn clean compile and BUILD SUCCESS is printed.
+
+Task 2: Implement Content-Based Router and Splitter
+Task 2.1: Implement the Content-Based Router Route
+Create src/main/java/com/alnafi/eip/routes/ContentBasedRouterRoute.java:
+
+package com.alnafi.eip.routes;
+
+import com.alnafi.eip.model.Order;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.dataformat.JsonLibrary;
+import org.springframework.stereotype.Component;
+
+@Component
+public class ContentBasedRouterRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        from("direct:processOrder")
+            .routeId("content-based-router")
+            .log("Received order: ${body}")
+            .unmarshal().json(JsonLibrary.Jackson, Order.class)
+            .choice()
+                .when(simple("${body.customerType} == 'PREMIUM'"))
+                    .log("Routing PREMIUM customer order: ${body.orderId}")
+                    .to("direct:premiumProcessing")
+                .when(simple("${body.customerType} == 'STANDARD'"))
+                    .log("Routing STANDARD customer order: ${body.orderId}")
+                    .to("direct:standardProcessing")
+                .when(simple("${body.amount} > 1000"))
+                    .log("Routing HIGH-VALUE order: ${body.orderId}")
+                    .to("direct:highValueProcessing")
+                .otherwise()
+                    .log("Routing to REGULAR processing: ${body.orderId}")
+                    .to("direct:regularProcessing")
+            .end();
+
+        from("direct:premiumProcessing")
+            .routeId("premium-processing")
+            .process(exchange -> {
+                Order order = exchange.getIn().getBody(Order.class);
+                order.setPriority("HIGH");
+                exchange.getIn().setBody(order);
+            })
+            .log("Premium order processed: ${body}")
+            .to("direct:orderComplete");
+
+        from("direct:standardProcessing")
+            .routeId("standard-processing")
+            .process(exchange -> {
+                Order order = exchange.getIn().getBody(Order.class);
+                order.setPriority("MEDIUM");
+                exchange.getIn().setBody(order);
+            })
+            .log("Standard order processed: ${body}")
+            .to("direct:orderComplete");
+
+        from("direct:highValueProcessing")
+            .routeId("high-value-processing")
+            .process(exchange -> {
+                Order order = exchange.getIn().getBody(Order.class);
+                order.setPriority("URGENT");
+                exchange.getIn().setBody(order);
+            })
+            .log("High-value order processed: ${body}")
+            .to("direct:orderComplete");
+
+        from("direct:regularProcessing")
+            .routeId("regular-processing")
+            .process(exchange -> {
+                Order order = exchange.getIn().getBody(Order.class);
+                order.setPriority("LOW");
+                exchange.getIn().setBody(order);
+            })
+            .log("Regular order processed: ${body}")
+            .to("direct:orderComplete");
+
+        from("direct:orderComplete")
+            .routeId("order-completion")
+            .log("Order processing completed: ${body}")
+            .marshal().json(JsonLibrary.Jackson);
+    }
+}
+Task 2.2: Implement the Splitter Route
+Create src/main/java/com/alnafi/eip/routes/SplitterRoute.java:
+
+package com.alnafi.eip.routes;
+
+import com.alnafi.eip.model.BatchOrder;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.dataformat.JsonLibrary;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SplitterRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        from("direct:processBatchOrder")
+            .routeId("batch-order-splitter")
+            .log("Received batch order: ${body}")
+            .unmarshal().json(JsonLibrary.Jackson, BatchOrder.class)
+            .log("Processing batch: ${body.batchId} with ${body.orders.size()} orders")
+            .split(simple("${body.orders}"))
+                .streaming()
+                .log("Processing individual order from batch: ${body}")
+                .marshal().json(JsonLibrary.Jackson)
+                .to("direct:processOrder")
+                .log("Individual order processed: ${body}")
+            .end()
+            .log("Batch processing completed");
+    }
+}
+The splitter reuses the direct:processOrder route from Task 2.1, so each order extracted from the batch is independently routed through the content-based router and given a priority.
+
+Task 2.3: Create the REST Controller
+Create src/main/java/com/alnafi/eip/controller/OrderController.java:
+
+package com.alnafi.eip.controller;
+
+import org.apache.camel.ProducerTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/orders")
+public class OrderController {
+
+    @Autowired
+    private ProducerTemplate producerTemplate;
+
+    @PostMapping("/process")
+    public ResponseEntity<String> processOrder(@RequestBody String orderJson) {
+        try {
+            String result = producerTemplate.requestBody("direct:processOrder", orderJson, String.class);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Error processing order: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/batch/process")
+    public ResponseEntity<String> processBatchOrder(@RequestBody String batchOrderJson) {
+        try {
+            producerTemplate.sendBody("direct:processBatchOrder", batchOrderJson);
+            return ResponseEntity.ok("Batch order processing initiated successfully");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Error processing batch order: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/aggregate")
+    public ResponseEntity<String> processOrderForAggregation(@RequestBody String orderJson) {
+        try {
+            producerTemplate.sendBody("direct:processOrderForAggregation", orderJson);
+            return ResponseEntity.ok("Order sent for aggregation");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Error processing order for aggregation: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/health")
+    public ResponseEntity<String> health() {
+        return ResponseEntity.ok("Order processing service is running");
+    }
+}
+Deliverable: the project compiles with mvn clean compile and produces BUILD SUCCESS.
+
+Task 3: Implement the Aggregator Pattern with Persisted Output
+Task 3.1: Create the Aggregation Strategy
+Create src/main/java/com/alnafi/eip/processors/OrderAggregationStrategy.java:
+
+package com.alnafi.eip.processors;
+
+import com.alnafi.eip.model.Order;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.camel.AggregationStrategy;
+import org.apache.camel.Exchange;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class OrderAggregationStrategy implements AggregationStrategy {
+
+    private static final Logger logger = LoggerFactory.getLogger(OrderAggregationStrategy.class);
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Override
+    public Exchange aggregate(Exchange oldExchange, Exchange newExchange) {
+        try {
+            String orderJson = newExchange.getIn().getBody(String.class);
+            Order newOrder = objectMapper.readValue(orderJson, Order.class);
+
+            if (oldExchange == null) {
+                List<Order> orders = new ArrayList<>();
+                orders.add(newOrder);
+
+                newExchange.getIn().setBody(orders);
+                newExchange.getIn().setHeader("aggregatedCount", 1);
+                newExchange.getIn().setHeader("totalAmount", newOrder.getAmount());
+
+                logger.info("Starting aggregation with order: {}", newOrder.getOrderId());
+                return newExchange;
+            } else {
+                @SuppressWarnings("unchecked")
+                List<Order> orders = oldExchange.getIn().getBody(List.class);
+                orders.add(newOrder);
+
+                int count = oldExchange.getIn().getHeader("aggregatedCount", Integer.class) + 1;
+                double totalAmount = oldExchange.getIn().getHeader("totalAmount", Double.class) + newOrder.getAmount();
+
+                oldExchange.getIn().setBody(orders);
+                oldExchange.getIn().setHeader("aggregatedCount", count);
+                oldExchange.getIn().setHeader("totalAmount", totalAmount);
+
+                logger.info("Aggregated {} orders, total amount so far: {}", count, totalAmount);
+                return oldExchange;
+            }
+        } catch (Exception e) {
+            logger.error("Error during aggregation", e);
+            throw new RuntimeException("Aggregation failed", e);
+        }
+    }
+}
+Task 3.2: Create the Aggregator Route and Persist the Result
+Create src/main/java/com/alnafi/eip/routes/AggregatorRoute.java. This route groups orders by customerType, completes a group after 3 orders (or a 10 second timeout, whichever comes first), builds a text summary, and then writes that summary to a file so the aggregated result can be inspected after the fact:
+
+package com.alnafi.eip.routes;
+
+import com.alnafi.eip.model.Order;
+import com.alnafi.eip.processors.OrderAggregationStrategy;
+import org.apache.camel.builder.RouteBuilder;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+@Component
+public class AggregatorRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        // Entry point: extract the customer type as a correlation header, then aggregate
+        from("direct:processOrderForAggregation")
+            .routeId("order-aggregation-sender")
+            .log("Sending order for aggregation: ${body}")
+            .setHeader("customerId", jsonpath("$.customerType"))
+            .to("direct:aggregateOrders");
+
+        // Aggregator: groups messages sharing the same customerId header
+        from("direct:aggregateOrders")
+            .routeId("order-aggregator")
+            .log("Order received for aggregation: ${body}")
+            .aggregate(header("customerId"), new OrderAggregationStrategy())
+                .completionSize(3)
+                .completionTimeout(10000)
+                .log("Aggregation completed for customer type: ${header.customerId}")
+                .log("Aggregated ${header.aggregatedCount} orders with total amount: ${header.totalAmount}")
+                .process(exchange -> {
+                    @SuppressWarnings("unchecked")
+                    List<Order> orders = exchange.getIn().getBody(List.class);
+                    exchange.getIn().setHeader("orderCount", orders.size());
+
+                    StringBuilder summary = new StringBuilder();
+                    summary.append("Aggregated Order Summary\n");
+                    summary.append("=========================\n");
+                    summary.append("Customer Type: ").append(exchange.getIn().getHeader("customerId")).append("\n");
+                    summary.append("Total Orders: ").append(orders.size()).append("\n");
+                    summary.append("Total Amount: ").append(exchange.getIn().getHeader("totalAmount")).append("\n");
+                    summary.append("Orders:\n");
+
+                    for (Order order : orders) {
+                        summary.append("  - ").append(order.toString()).append("\n");
+                    }
+
+                    exchange.getIn().setBody(summary.toString());
+                })
+                .log("Final aggregated result:\n${body}")
+                .to("direct:persistAggregatedOrders");
+
+        // Persistence: after aggregation completes, write the summary to a file
+        // so the result can be verified outside the application logs
+        from("direct:persistAggregatedOrders")
+            .routeId("aggregated-order-persister")
+            .setHeader("CamelFileName", simple("${header.customerId}-${date:now:yyyyMMdd-HHmmssSSS}.txt"))
+            .to("file:data/aggregated-orders")
+            .log("Aggregated result written to data/aggregated-orders/${header.CamelFileName}");
+    }
+}
+Flow after aggregation completes: once completionSize or completionTimeout triggers, the aggregated exchange carries a plain-text summary in its body. That body is routed to direct:persistAggregatedOrders, which sets a unique file name per customer type and timestamp, then writes it using the file: component to the data/aggregated-orders directory. This gives you a durable, inspectable artifact for every completed aggregation group, in addition to the log output.
+
+Deliverable: the project compiles with mvn clean compile and produces BUILD SUCCESS.
+
+Task 3.3: Create the Main Application Class and Configuration
+Create src/main/java/com/alnafi/eip/EipPatternsApplication.java:
+
+package com.alnafi.eip;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class EipPatternsApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(EipPatternsApplication.class, args);
+    }
+}
+Create src/main/resources/application.properties:
+
+server.port=8080
+
+camel.springboot.name=EipPatternsApplication
+camel.springboot.main-run-controller=true
+
+logging.level.com.alnafi.eip=INFO
+logging.level.org.apache.camel=INFO
+logging.pattern.console=%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n
+Add the camel-jsonpath dependency used by the jsonpath() expression in the aggregator route. Append this dependency inside the <dependencies> block of pom.xml:
+
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-jsonpath-starter</artifactId>
+        </dependency>
+Deliverable: mvn clean package completes with BUILD SUCCESS and produces target/eip-patterns-1.0.0.jar.
+
+Task 4: Build, Run, and Test All Three Patterns
+Task 4.1: Build and Start the Application
+Build the application:
+mvn clean package
+Expected result: BUILD SUCCESS with a jar created at target/eip-patterns-1.0.0.jar.
+
+Run the application in one terminal:
+mvn spring-boot:run
+Expected result: log output ending with a line similar to Started EipPatternsApplication in X seconds.
+
+In a second terminal, verify the application is up:
+curl http://localhost:8080/api/orders/health
+Expected output:
+
+Order processing service is running
+Task 4.2: Test the Content-Based Router
+Test a PREMIUM customer order:
+curl -X POST http://localhost:8080/api/orders/process \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "ORD-001",
+    "customerType": "PREMIUM",
+    "amount": 500.00,
+    "priority": "NORMAL",
+    "items": ["laptop", "mouse"]
+  }'
+Expected result: the response JSON has "priority":"HIGH", and the application log shows Routing PREMIUM customer order: ORD-001 followed by Premium order processed.
+
+Test a STANDARD customer order:
+curl -X POST http://localhost:8080/api/orders/process \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "ORD-002",
+    "customerType": "STANDARD",
+    "amount": 200.00,
+    "priority": "NORMAL",
+    "items": ["keyboard"]
+  }'
+Expected result: the response has "priority":"MEDIUM" and the log shows the STANDARD routing branch.
+
+Test a high-value REGULAR order (routed by amount, not customer type):
+curl -X POST http://localhost:8080/api/orders/process \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "ORD-003",
+    "customerType": "REGULAR",
+    "amount": 1500.00,
+    "priority": "NORMAL",
+    "items": ["server", "monitor"]
+  }'
+Expected result: the response has "priority":"URGENT" because the amount exceeds 1000, and the log shows Routing HIGH-VALUE order: ORD-003.
+
+Task 4.3: Test the Splitter Pattern
+Send a batch of three orders:
+
+curl -X POST http://localhost:8080/api/orders/batch/process \
+  -H "Content-Type: application/json" \
+  -d '{
+    "batchId": "BATCH-001",
+    "orders": [
+      {
+        "orderId": "ORD-101",
+        "customerType": "PREMIUM",
+        "amount": 400.00,
+        "priority": "NORMAL",
+        "items": ["tablet"]
+      },
+      {
+        "orderId": "ORD-102",
+        "customerType": "STANDARD",
+        "amount": 300.00,
+        "priority": "NORMAL",
+        "items": ["phone"]
+      },
+      {
+        "orderId": "ORD-103",
+        "customerType": "PREMIUM",
+        "amount": 500.00,
+        "priority": "NORMAL",
+        "items": ["headphones"]
+      }
+    ]
+  }'
+Expected result: the HTTP response is Batch order processing initiated successfully, and the application log shows Processing batch: BATCH-001 with 3 orders followed by three separate Processing individual order from batch lines, each one going through the content-based router individually (you should see PREMIUM and STANDARD routing lines for the respective orders).
+
+Task 5.4: Test the Aggregator Pattern
+Send three PREMIUM orders in quick succession to trigger completionSize(3):
+curl -X POST http://localhost:8080/api/orders/aggregate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "AGG-001",
+    "customerType": "PREMIUM",
+    "amount": 100.00,
+    "priority": "NORMAL",
+    "items": ["item1"]
+  }'
+
+curl -X POST http://localhost:8080/api/orders/aggregate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "AGG-002",
+    "customerType": "PREMIUM",
+    "amount": 200.00,
+    "priority": "NORMAL",
+    "items": ["item2"]
+  }'
+
+curl -X POST http://localhost:8080/api/orders/aggregate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "AGG-003",
+    "customerType": "PREMIUM",
+    "amount": 150.00,
+    "priority": "NORMAL",
+    "items": ["item3"]
+  }'
+Expected result: each curl call returns Order sent for aggregation. After the third call, the application log shows Aggregation completed for customer type: PREMIUM, Aggregated 3 orders with total amount: 450.0, and Aggregated result written to data/aggregated-orders/PREMIUM-<timestamp>.txt.
+
+Send two STANDARD orders and let the 10 second timeout complete the group instead of the size trigger:
+curl -X POST http://localhost:8080/api/orders/aggregate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "AGG-004",
+    "customerType": "STANDARD",
+    "amount": 250.00,
+    "priority": "NORMAL",
+    "items": ["item4"]
+  }'
+
+curl -X POST http://localhost:8080/api/orders/aggregate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "AGG-005",
+    "customerType": "STANDARD",
+    "amount": 350.00,
+    "priority": "NORMAL",
+    "items": ["item5"]
+  }'
+Wait at least 10 seconds after the second command, then check the log for the STANDARD group completing on timeout with Aggregated 2 orders with total amount: 600.0.
+
+Verify the persisted aggregation files on disk:
+ls -la data/aggregated-orders/
+cat data/aggregated-orders/PREMIUM-*.txt
+Expected output for the PREMIUM file: a text summary listing 3 orders, a total amount of 450.0, and each order's orderId, customerType, amount, and priority (all should show priority='NORMAL' since the aggregator route does not modify priority, only the content-based router does).
+
+Deliverable: two files exist under data/aggregated-orders/, one prefixed PREMIUM- containing 3 orders, and one prefixed STANDARD- containing 2 orders, confirming both the completion-size and completion-timeout triggers work correctly.
+
+Expected Outcomes
+A running Spring Boot and Apache Camel application exposing REST endpoints that demonstrate Content-Based Router, Splitter, and Aggregator patterns end to end
+Application logs and files under data/aggregated-orders/ that clearly show orders being routed by content, split from a batch, and aggregated into grouped summaries with correct totals
+A working understanding of how these three EIPs compose together, since the Splitter route reuses the Content-Based Router route for each split item
+Troubleshooting
+Aggregation never completes / no file appears: check that completionTimeout(10000) has elapsed if you sent fewer than 3 orders of the same customerType, and confirm the customerId header is being set correctly from jsonpath("$.customerType") before reaching the aggregator.
+BUILD FAILURE mentioning jsonpath: confirm the camel-jsonpath-starter dependency was added to pom.xml exactly as shown, then rerun mvn clean compile.
+Conclusion
+In this lab, you built a single Spring Boot application that implements three core Enterprise Integration Patterns with Apache Camel: a Content-Based Router that inspects order fields to choose a processing path, a Splitter that decomposes a batch order into individual messages and feeds them back through that same router, and an Aggregator that groups related orders by customer type, completes on either a size or time trigger, and persists the resulting summary to disk for verification. Through the curl-based tests you confirmed each pattern's behavior directly from log output and from the generated files in data/aggregated-orders/, reinforcing how these patterns route, decompose, and recombine messages in a realistic integration scenario. As a next step, consider extending the aggregator to write structured JSON instead of plain text, or adding a Dead Letter Channel to handle malformed order payloads gracefully.
