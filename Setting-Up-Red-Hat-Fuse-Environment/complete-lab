@@ -1,0 +1,454 @@
+Lab 1: Setting Up Red Hat Fuse Environment
+Objectives
+By the end of this lab, students will be able to:
+
+Install and configure Apache Camel on Red Hat Enterprise Linux (RHEL)
+Install and configure Apache Karaf as the OSGi runtime container
+Install and configure Apache ActiveMQ as the message broker
+Verify all installations by checking service status and functionality
+Start the Fuse environment and successfully access the management console
+Understand the core components that make up the Red Hat Fuse integration platform
+Prerequisites
+Before starting this lab, students should have:
+
+Basic knowledge of Linux command-line operations
+Understanding of file system navigation and permissions
+Familiarity with text editors (vi/vim or nano)
+Basic understanding of Java applications and environment variables
+Knowledge of network concepts (ports, services, processes)
+Access to a terminal or SSH client
+Lab Environment Setup
+Ready-to-Use Cloud Machines: Al Nafi provides pre-configured Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated RHEL environment. No need to build your own virtual machine or worry about hardware requirements.
+
+Your cloud machine includes:
+
+Red Hat Enterprise Linux 8 or 9
+Java Development Kit (JDK) 11 or higher
+Root access for installation tasks
+Network connectivity for downloading packages
+Task 1: Install Apache Camel
+Apache Camel is the core integration framework that provides routing and mediation rules in a variety of domain-specific languages.
+
+Subtask 1.1: Prepare the System Environment
+First, let's ensure our system is updated and has the necessary prerequisites.
+
+# Update the system packages
+sudo dnf update -y
+
+# Install Java Development Kit if not already present
+sudo dnf install java-11-openjdk java-11-openjdk-devel -y
+
+# Verify Java installation
+java -version
+javac -version
+Subtask 1.2: Set Java Environment Variables
+Configure the Java environment variables for proper operation.
+
+# Find Java installation path
+sudo find /usr/lib/jvm -name "java-11-openjdk*" -type d
+
+# Set JAVA_HOME environment variable
+echo 'export JAVA_HOME=/usr/lib/jvm/java-11-openjdk' >> ~/.bashrc
+echo 'export PATH=$JAVA_HOME/bin:$PATH' >> ~/.bashrc
+
+# Reload the environment
+source ~/.bashrc
+
+# Verify environment variables
+echo $JAVA_HOME
+Subtask 1.3: Download and Install Apache Camel
+Download the latest stable version of Apache Camel.
+
+# Create installation directory
+sudo mkdir -p /opt/apache-camel
+cd /opt/apache-camel
+
+# Download Apache Camel (version 3.21.0 - current stable)
+sudo wget https://archive.apache.org/dist/camel/apache-camel/3.21.0/apache-camel-3.21.0.tar.gz
+
+# Extract the archive
+sudo tar -xzf apache-camel-3.21.0.tar.gz
+
+# Create symbolic link for easier access
+sudo ln -s apache-camel-3.21.0 current
+
+# Set ownership and permissions
+sudo chown -R $USER:$USER /opt/apache-camel
+Subtask 1.4: Configure Camel Environment
+Set up environment variables for Apache Camel.
+
+# Add Camel to environment variables
+echo 'export CAMEL_HOME=/opt/apache-camel/current' >> ~/.bashrc
+echo 'export PATH=$CAMEL_HOME/bin:$PATH' >> ~/.bashrc
+
+# Reload environment
+source ~/.bashrc
+
+# Verify Camel installation
+ls -la $CAMEL_HOME/lib/
+Task 2: Install Apache Karaf
+Apache Karaf is a lightweight OSGi container that provides a runtime environment for deploying and managing OSGi applications.
+
+Subtask 2.1: Download Apache Karaf
+# Create Karaf installation directory
+sudo mkdir -p /opt/apache-karaf
+cd /opt/apache-karaf
+
+# Download Apache Karaf (version 4.4.3 - current stable)
+sudo wget https://archive.apache.org/dist/karaf/4.4.3/apache-karaf-4.4.3.tar.gz
+
+# Extract the archive
+sudo tar -xzf apache-karaf-4.4.3.tar.gz
+
+# Create symbolic link
+sudo ln -s apache-karaf-4.4.3 current
+
+# Set ownership
+sudo chown -R $USER:$USER /opt/apache-karaf
+Subtask 2.2: Configure Karaf Environment
+# Set Karaf environment variables
+echo 'export KARAF_HOME=/opt/apache-karaf/current' >> ~/.bashrc
+echo 'export PATH=$KARAF_HOME/bin:$PATH' >> ~/.bashrc
+
+# Reload environment
+source ~/.bashrc
+
+# Verify Karaf installation
+ls -la $KARAF_HOME/bin/
+Subtask 2.3: Configure Karaf for Fuse Integration
+Edit the Karaf configuration to optimize for Fuse operations.
+
+# Navigate to Karaf configuration directory
+cd $KARAF_HOME/etc
+
+# Backup original configuration
+cp org.apache.karaf.shell.cfg org.apache.karaf.shell.cfg.backup
+
+# Configure shell timeout (optional)
+echo 'sshIdleTimeout=0' >> org.apache.karaf.shell.cfg
+Task 3: Install Apache ActiveMQ
+Apache ActiveMQ is a message broker that provides reliable messaging between distributed applications.
+
+Subtask 3.1: Download and Install ActiveMQ
+# Create ActiveMQ installation directory
+sudo mkdir -p /opt/apache-activemq
+cd /opt/apache-activemq
+
+# Download Apache ActiveMQ (version 5.18.2 - current stable)
+sudo wget https://archive.apache.org/dist/activemq/5.18.2/apache-activemq-5.18.2-bin.tar.gz
+
+# Extract the archive
+sudo tar -xzf apache-activemq-5.18.2-bin.tar.gz
+
+# Create symbolic link
+sudo ln -s apache-activemq-5.18.2 current
+
+# Set ownership
+sudo chown -R $USER:$USER /opt/apache-activemq
+Subtask 3.2: Configure ActiveMQ Environment
+# Set ActiveMQ environment variables
+echo 'export ACTIVEMQ_HOME=/opt/apache-activemq/current' >> ~/.bashrc
+echo 'export PATH=$ACTIVEMQ_HOME/bin:$PATH' >> ~/.bashrc
+
+# Reload environment
+source ~/.bashrc
+
+# Verify ActiveMQ installation
+ls -la $ACTIVEMQ_HOME/bin/
+Subtask 3.3: Configure ActiveMQ Settings
+Configure ActiveMQ for optimal performance and security.
+
+# Navigate to ActiveMQ configuration
+cd $ACTIVEMQ_HOME/conf
+
+# Backup original configuration
+cp activemq.xml activemq.xml.backup
+
+# Create a basic configuration file
+cat > activemq.xml << 'EOF'
+<beans
+  xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+  http://activemq.apache.org/schema/core http://activemq.apache.org/schema/core/activemq-core.xsd">
+
+    <bean class="org.springframework.beans.factory.config.PropertyPlaceholderConfigurer">
+        <property name="locations">
+            <value>file:${activemq.conf}/credentials.properties</value>
+        </property>
+    </bean>
+
+    <broker xmlns="http://activemq.apache.org/schema/core" brokerName="localhost" dataDirectory="${activemq.data}">
+        <destinationPolicy>
+            <policyMap>
+              <policyEntries>
+                <policyEntry topic=">" >
+                  <pendingMessageLimitStrategy>
+                    <constantPendingMessageLimitStrategy limit="1000"/>
+                  </pendingMessageLimitStrategy>
+                </policyEntry>
+              </policyEntries>
+            </policyMap>
+        </destinationPolicy>
+
+        <managementContext>
+            <managementContext createConnector="false"/>
+        </managementContext>
+
+        <persistenceAdapter>
+            <kahaDB directory="${activemq.data}/kahadb"/>
+        </persistenceAdapter>
+
+        <transportConnectors>
+            <transportConnector name="openwire" uri="tcp://0.0.0.0:61616?maximumConnections=1000&amp;wireFormat.maxFrameSize=104857600"/>
+            <transportConnector name="amqp" uri="amqp://0.0.0.0:5672?maximumConnections=1000&amp;wireFormat.maxFrameSize=104857600"/>
+        </transportConnectors>
+
+        <shutdownHooks>
+            <bean xmlns="http://www.springframework.org/schema/beans" class="org.apache.activemq.hooks.SpringContextHook" />
+        </shutdownHooks>
+    </broker>
+
+    <import resource="jetty.xml"/>
+</beans>
+EOF
+Task 4: Verify Installation by Checking Service Status
+Now let's verify that all components are properly installed and can be started.
+
+Subtask 4.1: Test Apache Camel Installation
+# Check if Camel libraries are accessible
+ls -la $CAMEL_HOME/lib/ | grep camel-core
+
+# Verify Camel version
+find $CAMEL_HOME/lib -name "camel-core-*.jar" -exec basename {} \;
+Subtask 4.2: Test Apache Karaf Installation
+# Start Karaf in background mode
+cd $KARAF_HOME
+./bin/start
+
+# Wait a few seconds for startup
+sleep 10
+
+# Check if Karaf is running
+./bin/status
+
+# Connect to Karaf console to verify
+./bin/client "version"
+
+# Stop Karaf for now
+./bin/stop
+Subtask 4.3: Test Apache ActiveMQ Installation
+# Start ActiveMQ in background
+cd $ACTIVEMQ_HOME
+./bin/activemq start
+
+# Wait for startup
+sleep 15
+
+# Check ActiveMQ status
+./bin/activemq status
+
+# Verify ActiveMQ is listening on correct ports
+netstat -tlnp | grep :61616
+netstat -tlnp | grep :8161
+
+# Stop ActiveMQ for now
+./bin/activemq stop
+Task 5: Start the Fuse Environment and Access the Console
+Now let's start all components together to create a complete Fuse environment.
+
+Subtask 5.1: Create Startup Scripts
+Create convenient scripts to start all services together.
+
+# Create a startup script directory
+mkdir -p ~/fuse-scripts
+
+# Create the startup script
+cat > ~/fuse-scripts/start-fuse.sh << 'EOF'
+#!/bin/bash
+
+echo "Starting Red Hat Fuse Environment..."
+
+# Start ActiveMQ
+echo "Starting ActiveMQ..."
+cd $ACTIVEMQ_HOME
+./bin/activemq start
+
+# Wait for ActiveMQ to start
+sleep 10
+
+# Start Karaf
+echo "Starting Karaf..."
+cd $KARAF_HOME
+./bin/start
+
+# Wait for Karaf to start
+sleep 15
+
+echo "Fuse environment started successfully!"
+echo "ActiveMQ Web Console: http://localhost:8161/admin (admin/admin)"
+echo "Karaf Console: $KARAF_HOME/bin/client"
+EOF
+
+# Create the shutdown script
+cat > ~/fuse-scripts/stop-fuse.sh << 'EOF'
+#!/bin/bash
+
+echo "Stopping Red Hat Fuse Environment..."
+
+# Stop Karaf
+echo "Stopping Karaf..."
+cd $KARAF_HOME
+./bin/stop
+
+# Stop ActiveMQ
+echo "Stopping ActiveMQ..."
+cd $ACTIVEMQ_HOME
+./bin/activemq stop
+
+echo "Fuse environment stopped successfully!"
+EOF
+
+# Make scripts executable
+chmod +x ~/fuse-scripts/*.sh
+Subtask 5.2: Start the Complete Fuse Environment
+# Run the startup script
+~/fuse-scripts/start-fuse.sh
+
+# Verify all services are running
+echo "Checking service status..."
+
+# Check ActiveMQ
+cd $ACTIVEMQ_HOME
+./bin/activemq status
+
+# Check Karaf
+cd $KARAF_HOME
+./bin/status
+Subtask 5.3: Access Management Consoles
+ActiveMQ Web Console Access:
+
+# Check if ActiveMQ web console is accessible
+curl -I http://localhost:8161/admin/
+
+# If successful, you can access it via browser at:
+# http://localhost:8161/admin/
+# Default credentials: admin/admin
+Karaf Console Access:
+
+# Connect to Karaf console
+cd $KARAF_HOME
+./bin/client
+
+# Once connected, try these commands:
+# version
+# list
+# feature:list | grep camel
+# exit
+Subtask 5.4: Install Camel Features in Karaf
+Connect to Karaf and install Camel features for complete integration.
+
+# Connect to Karaf console
+cd $KARAF_HOME
+./bin/client
+
+# In the Karaf console, run these commands:
+# feature:repo-add camel 3.21.0
+# feature:install camel-core
+# feature:install camel-spring
+# feature:install camel-jms
+# list | grep -i camel
+# exit
+Subtask 5.5: Create a Simple Test Integration
+Create a simple Camel route to test the integration.
+
+# Create a test directory
+mkdir -p ~/fuse-test
+
+# Create a simple Camel route XML file
+cat > ~/fuse-test/simple-route.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:camel="http://camel.apache.org/schema/blueprint">
+
+  <camelContext xmlns="http://camel.apache.org/schema/blueprint">
+    <route id="simple-file-route">
+      <from uri="file:///tmp/camel-input?noop=true"/>
+      <log message="Processing file: ${header.CamelFileName}"/>
+      <to uri="file:///tmp/camel-output"/>
+    </route>
+  </camelContext>
+
+</blueprint>
+EOF
+
+# Create test directories
+mkdir -p /tmp/camel-input /tmp/camel-output
+
+# Create a test file
+echo "Hello from Red Hat Fuse!" > /tmp/camel-input/test-message.txt
+Troubleshooting Common Issues
+Issue 1: Java Version Conflicts
+If you encounter Java version issues:
+
+# Check current Java version
+java -version
+
+# List available Java versions
+sudo alternatives --config java
+
+# Set the correct Java version
+sudo alternatives --set java /usr/lib/jvm/java-11-openjdk/bin/java
+Issue 2: Port Conflicts
+If services fail to start due to port conflicts:
+
+# Check what's using the ports
+sudo netstat -tlnp | grep :61616  # ActiveMQ
+sudo netstat -tlnp | grep :8161   # ActiveMQ Web Console
+sudo netstat -tlnp | grep :8101   # Karaf SSH
+
+# Kill conflicting processes if necessary
+sudo fuser -k 61616/tcp
+Issue 3: Permission Issues
+If you encounter permission errors:
+
+# Fix ownership of installation directories
+sudo chown -R $USER:$USER /opt/apache-camel
+sudo chown -R $USER:$USER /opt/apache-karaf
+sudo chown -R $USER:$USER /opt/apache-activemq
+
+# Ensure execute permissions on scripts
+chmod +x $KARAF_HOME/bin/*
+chmod +x $ACTIVEMQ_HOME/bin/*
+Verification Checklist
+Before concluding the lab, verify the following:
+
+ Java 11 or higher is installed and configured
+ Apache Camel libraries are accessible
+ Apache Karaf starts and stops successfully
+ Apache ActiveMQ starts and accepts connections
+ ActiveMQ web console is accessible at http://localhost:8161/admin
+ Karaf console is accessible via client command
+ Camel features can be installed in Karaf
+ All environment variables are properly set
+ Startup and shutdown scripts work correctly
+Conclusion
+Congratulations! You have successfully set up a complete Red Hat Fuse environment on Red Hat Enterprise Linux. This lab has provided you with hands-on experience in:
+
+What You Accomplished:
+
+Installed and configured Apache Camel, the core integration framework
+Set up Apache Karaf as the OSGi runtime container for deploying integration applications
+Configured Apache ActiveMQ as the message broker for reliable messaging
+Created management scripts for easy environment control
+Verified all installations through comprehensive testing
+Established the foundation for building enterprise integration solutions
+Why This Matters: This environment setup is crucial for enterprise integration projects because it provides:
+
+Scalability: The OSGi-based Karaf container allows for modular application deployment
+Reliability: ActiveMQ ensures message delivery even in distributed environments
+Flexibility: Camel's extensive component library supports integration with hundreds of systems
+Manageability: Web-based consoles provide real-time monitoring and administration capabilities
+You now have a fully functional Red Hat Fuse environment ready for developing, testing, and deploying enterprise integration solutions. This foundation will support advanced integration patterns, microservices architectures, and cloud-native applications in subsequent labs.
+
+The skills you've gained in this lab are directly applicable to the Cloud-native Integration with Red Hat Fuse and Apache Camel certification and real-world enterprise integration projects.
