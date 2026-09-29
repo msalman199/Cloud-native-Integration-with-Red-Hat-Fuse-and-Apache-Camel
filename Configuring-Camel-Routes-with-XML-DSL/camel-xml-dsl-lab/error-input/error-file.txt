@@ -1,0 +1,1 @@
+This file contains 'error' in the name and will trigger error handling.

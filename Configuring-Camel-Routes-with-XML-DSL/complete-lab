@@ -1,0 +1,451 @@
+Lab 3: Configuring Camel Routes with XML DSL
+Objectives
+By the end of this lab, you will be able to:
+
+Define and configure Apache Camel routes using XML Domain Specific Language (DSL)
+Implement content-based routing and message transformation using XML DSL elements
+Run a Camel context standalone (outside a container) and observe file-based route processing
+Validate that routes are active and correctly processing messages using concrete file-count checks
+Debug common XML DSL route configuration errors
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Apache Camel concepts (routes, endpoints, processors)
+Familiarity with XML syntax and namespaces
+Basic knowledge of enterprise integration patterns (content-based router, message translator)
+Basic understanding of Java and Maven
+Required Tools
+This lab assumes a Linux practice environment (a personal VM, container, or an Al Nafi cloud machine) with the following installed. If they are not already present, install them with:
+
+# Check for existing installations first
+java -version
+mvn -version
+
+# If missing, on a Debian/Ubuntu-based system:
+sudo apt-get update
+sudo apt-get install -y openjdk-11-jdk maven
+
+# If missing, on a RHEL/Fedora-based system:
+sudo dnf install -y java-11-openjdk-devel maven
+Verify versions before continuing:
+
+java -version
+# Expected: openjdk version "11.x.x" or similar
+
+mvn -version
+# Expected: Apache Maven 3.8.x (or later), Java version: 11.x.x
+Task 1: Build a Camel XML DSL Route Project
+Subtask 1.1: Set Up the Project Structure
+Create the project directory and standard Maven layout:
+mkdir -p camel-xml-dsl-lab/src/main/java/com/alnafi/camel
+mkdir -p camel-xml-dsl-lab/src/main/resources
+cd camel-xml-dsl-lab
+Create the Maven pom.xml:
+cat > pom.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.alnafi.camel</groupId>
+    <artifactId>camel-xml-dsl-lab</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <camel.version>3.20.2</camel.version>
+        <spring.version>5.3.23</spring.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-spring</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-file</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>1.7.36</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+EOF
+Deliverable: A pom.xml at the project root. Confirm it exists with cat pom.xml | head -5; you should see the <project ...> opening tag and <modelVersion>4.0.0</modelVersion>.
+
+Subtask 1.2: Create the XML DSL Route Configuration
+Create the Spring/Camel XML configuration file:
+cat > src/main/resources/camel-context.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="
+       http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <camelContext id="camelContext" xmlns="http://camel.apache.org/schema/spring">
+
+        <!-- Route 1: Content-based routing by file extension -->
+        <route id="fileProcessingRoute">
+            <from uri="file:input?noop=true&amp;delay=2000"/>
+            <log message="Processing file: ${header.CamelFileName}"/>
+            <choice>
+                <when>
+                    <simple>${header.CamelFileName} ends with '.xml'</simple>
+                    <transform>
+                        <simple>XML File Processed: ${body}</simple>
+                    </transform>
+                    <to uri="file:output/xml"/>
+                </when>
+                <when>
+                    <simple>${header.CamelFileName} ends with '.json'</simple>
+                    <transform>
+                        <simple>JSON File Processed: ${body}</simple>
+                    </transform>
+                    <to uri="file:output/json"/>
+                </when>
+                <otherwise>
+                    <transform>
+                        <simple>Generic File Processed: ${body}</simple>
+                    </transform>
+                    <to uri="file:output/other"/>
+                </otherwise>
+            </choice>
+        </route>
+
+        <!-- Route 2: Message transformation into a JSON envelope -->
+        <route id="messageTransformationRoute">
+            <from uri="file:transform-input?noop=true&amp;delay=2000"/>
+            <log message="Transforming file: ${header.CamelFileName}"/>
+            <transform>
+                <simple>{"processedFile": "${header.CamelFileName}", "originalContent": "${body}", "status": "PROCESSED"}</simple>
+            </transform>
+            <to uri="file:transform-output"/>
+        </route>
+
+        <!-- Route 3: Error handling with a dead letter channel -->
+        <route id="errorHandlingRoute" errorHandlerRef="deadLetterErrorHandler">
+            <from uri="file:error-input?noop=true&amp;delay=2000"/>
+            <log message="Processing with error handling: ${header.CamelFileName}"/>
+            <choice>
+                <when>
+                    <simple>${header.CamelFileName} contains 'error'</simple>
+                    <throwException exceptionType="java.lang.RuntimeException"
+                                   message="Simulated processing error for file: ${header.CamelFileName}"/>
+                </when>
+                <otherwise>
+                    <transform>
+                        <simple>Successfully processed: ${header.CamelFileName}</simple>
+                    </transform>
+                    <to uri="file:error-output/success"/>
+                </otherwise>
+            </choice>
+        </route>
+
+    </camelContext>
+
+    <bean id="deadLetterErrorHandler"
+          class="org.apache.camel.builder.DeadLetterChannelBuilder">
+        <property name="deadLetterUri" value="file:error-output/failed"/>
+        <property name="useOriginalMessage" value="true"/>
+    </bean>
+
+</beans>
+EOF
+Deliverable: src/main/resources/camel-context.xml containing three <route> blocks. Verify with grep -c "<route " src/main/resources/camel-context.xml, which should print 3.
+
+Subtask 1.3: Create the Java Bootstrap Application
+Create the main application class:
+cat > src/main/java/com/alnafi/camel/CamelXmlDslApplication.java << 'EOF'
+package com.alnafi.camel;
+
+import org.apache.camel.CamelContext;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.support.ClassPathXmlApplicationContext;
+
+public class CamelXmlDslApplication {
+
+    public static void main(String[] args) throws Exception {
+        System.out.println("Starting Camel XML DSL Application...");
+
+        ApplicationContext springContext =
+            new ClassPathXmlApplicationContext("camel-context.xml");
+
+        CamelContext camelContext = springContext.getBean("camelContext", CamelContext.class);
+
+        camelContext.start();
+
+        System.out.println("Camel Context started successfully!");
+        System.out.println("Routes configured:");
+        camelContext.getRoutes().forEach(route ->
+            System.out.println("- " + route.getId() + " -> " + route.getEndpoint().getEndpointUri()));
+
+        System.out.println("\nApplication will run for 30 seconds to process files, then shut down.");
+        Thread.sleep(30000);
+
+        System.out.println("Shutting down Camel context...");
+        camelContext.stop();
+        System.out.println("Application stopped.");
+    }
+}
+EOF
+Deliverable: The application compiles cleanly.
+
+mvn clean compile
+Expected output ends with:
+
+[INFO] BUILD SUCCESS
+Task 2: Test Routing and Transformation Behavior
+Subtask 2.1: Create Input and Output Directories
+mkdir -p input transform-input error-input
+mkdir -p output/xml output/json output/other
+mkdir -p transform-output
+mkdir -p error-output/success error-output/failed
+Deliverable: Directory tree exists. Verify with find . -maxdepth 2 -type d | sort and confirm input, transform-input, error-input, output/xml, output/json, output/other, transform-output, error-output/success, and error-output/failed are all listed.
+
+Subtask 2.2: Create Test Files Before Starting the Route
+Files must exist before the application starts, since the file consumer polls on a delay and this lab run is time-boxed to 30 seconds.
+
+cat > input/sample.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<customer>
+    <id>12345</id>
+    <name>John Doe</name>
+</customer>
+EOF
+
+cat > input/sample.json << 'EOF'
+{
+    "customerId": "67890",
+    "customerName": "Jane Smith"
+}
+EOF
+
+cat > input/sample.txt << 'EOF'
+This is a sample text file for testing generic file processing.
+EOF
+
+cat > transform-input/transform-test.txt << 'EOF'
+Original message content for transformation testing.
+EOF
+
+cat > error-input/normal-file.txt << 'EOF'
+This is a normal file that should process successfully.
+EOF
+
+cat > error-input/error-file.txt << 'EOF'
+This file contains 'error' in the name and will trigger error handling.
+EOF
+Deliverable: 6 files created across input, transform-input, and error-input. Verify with find input transform-input error-input -type f | wc -l, which should print 6.
+
+Subtask 2.3: Run the Application and Observe Processing
+Start the application (it will run for 30 seconds then stop automatically):
+mvn exec:java -Dexec.mainClass="com.alnafi.camel.CamelXmlDslApplication"
+While it runs, watch the console for log lines such as:
+Processing file: sample.xml
+Processing file: sample.json
+Processing file: sample.txt
+Transforming file: transform-test.txt
+Processing with error handling: normal-file.txt
+Processing with error handling: error-file.txt
+Wait for the application to print Application stopped. before continuing.
+Deliverable: Console output shows all three routes logging processed file names, and the process exits cleanly after roughly 30 seconds.
+
+Subtask 2.4: Verify Output Contents
+cat output/xml/sample.xml
+# Expected: "XML File Processed: <?xml version=\"1.0\" ...>...</customer>"
+
+cat output/json/sample.json
+# Expected: "JSON File Processed: {...}"
+
+cat output/other/sample.txt
+# Expected: "Generic File Processed: This is a sample text file..."
+
+cat transform-output/transform-test.txt
+# Expected: {"processedFile": "transform-test.txt", "originalContent": "Original message content for transformation testing.", "status": "PROCESSED"}
+
+cat error-output/success/normal-file.txt
+# Expected: "Successfully processed: normal-file.txt"
+
+cat error-output/failed/error-file.txt
+# Expected: the original file content (dead letter channel preserves the original message)
+Deliverable: Each command above produces the expected content pattern shown. If output/xml, output/json, or output/other are empty, re-check Subtask 2.2 (files must exist before the route starts) and rerun Task 2 from the beginning, recreating the test files first.
+
+Task 3: Validate Routes Through the Camel Context
+Subtask 3.1: Create a Route Validation Utility
+cat > src/main/java/com/alnafi/camel/RouteValidator.java << 'EOF'
+package com.alnafi.camel;
+
+import org.apache.camel.CamelContext;
+import org.apache.camel.Route;
+import org.apache.camel.ServiceStatus;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.support.ClassPathXmlApplicationContext;
+
+import java.util.List;
+
+public class RouteValidator {
+
+    public static void main(String[] args) throws Exception {
+        System.out.println("=== Camel Route Validation Utility ===\n");
+
+        ApplicationContext springContext =
+            new ClassPathXmlApplicationContext("camel-context.xml");
+
+        CamelContext camelContext = springContext.getBean("camelContext", CamelContext.class);
+        camelContext.start();
+
+        List<Route> routes = camelContext.getRoutes();
+        System.out.println("Total routes configured: " + routes.size());
+
+        for (Route route : routes) {
+            System.out.println("\nRoute ID: " + route.getId());
+            System.out.println("Consumer Endpoint: " + route.getConsumer().getEndpoint().getEndpointUri());
+            ServiceStatus status = camelContext.getRouteController().getRouteStatus(route.getId());
+            System.out.println("Status: " + status);
+            if (status == ServiceStatus.Started) {
+                System.out.println("Validation: PASSED - route is active");
+            } else {
+                System.out.println("Validation: FAILED - route is not active");
+            }
+        }
+
+        camelContext.stop();
+        System.out.println("\nValidation completed.");
+    }
+}
+EOF
+Deliverable: Compile and run the validator.
+
+mvn compile
+mvn exec:java -Dexec.mainClass="com.alnafi.camel.RouteValidator"
+Expected output includes Total routes configured: 3, followed by three blocks, each ending in Status: Started and Validation: PASSED - route is active. If any route reports Stopped or an exception is thrown instead, that route has a configuration error in camel-context.xml that must be fixed before continuing.
+
+Subtask 3.2: Reset Test Data and Re-run End-to-End Processing
+Since Task 2 already consumed the original test files (noop=true leaves copies, but for a clean count we reset explicitly), clear and repopulate the input directories:
+
+rm -f output/xml/* output/json/* output/other/* transform-output/* error-output/success/* error-output/failed/*
+
+cat > input/sample.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<order><id>1</id></order>
+EOF
+
+cat > input/sample.json << 'EOF'
+{"orderId": 1}
+EOF
+
+cat > input/sample.txt << 'EOF'
+Plain text order note.
+EOF
+
+cat > transform-input/note.txt << 'EOF'
+Second transformation test.
+EOF
+
+cat > error-input/ok-file.txt << 'EOF'
+Should succeed.
+EOF
+
+cat > error-input/error-trigger.txt << 'EOF'
+Should fail due to error keyword.
+EOF
+Run the application again to process this fresh batch:
+
+mvn exec:java -Dexec.mainClass="com.alnafi.camel.CamelXmlDslApplication"
+Wait for it to print Application stopped. (about 30 seconds).
+
+Deliverable: A fresh, known set of 6 input files processed by all three routes in a single run.
+
+Subtask 3.3: Validate Results with the Monitoring Script
+Create the monitoring script:
+cat > monitor-routes.sh << 'EOF'
+#!/bin/bash
+
+echo "=== Camel Route Monitoring ==="
+echo "Timestamp: $(date)"
+echo
+
+echo "Output Directories:"
+echo "- output/xml: $(ls -1 output/xml 2>/dev/null | wc -l) files"
+echo "- output/json: $(ls -1 output/json 2>/dev/null | wc -l) files"
+echo "- output/other: $(ls -1 output/other 2>/dev/null | wc -l) files"
+echo "- transform-output: $(ls -1 transform-output 2>/dev/null | wc -l) files"
+echo "- error-output/success: $(ls -1 error-output/success 2>/dev/null | wc -l) files"
+echo "- error-output/failed: $(ls -1 error-output/failed 2>/dev/null | wc -l) files"
+EOF
+chmod +x monitor-routes.sh
+Run it immediately after Subtask 3.2 completes (do not run it while the application is still processing, or counts will be incomplete):
+./monitor-routes.sh
+Expected output and success criteria, based on the exact files created in Subtask 3.2:
+
+Output Directories:
+- output/xml: 1 files
+- output/json: 1 files
+- output/other: 1 files
+- transform-output: 1 files
+- error-output/success: 1 files
+- error-output/failed: 1 files
+Compare the actual counts printed by the script against this expected table:
+
+Directory	Expected count	Meaning if lower
+output/xml	1	fileProcessingRoute did not match .xml files
+output/json	1	fileProcessingRoute did not match .json files
+output/other	1	otherwise-branch of content-based router did not fire
+transform-output	1	messageTransformationRoute did not consume transform-input
+error-output/success	1	error route's otherwise-branch did not complete
+error-output/failed	1	dead letter channel did not catch the thrown exception
+If every row matches, all three routes are validated as working end to end. If any row reads 0, re-run Subtask 3.1's validator to check the corresponding route's status, then inspect that route's <choice> or <from> block in camel-context.xml for a typo before retrying Subtask 3.2.
+
+Expected Outcomes
+A working Maven project with a Camel context defined entirely in XML DSL, containing three routes: content-based routing, message transformation, and error handling with a dead letter channel
+Console and file-system evidence that each route processed its expected input and produced the expected output content
+A repeatable validation procedure (route validator plus file-count monitoring script) that gives a clear pass/fail signal for each route
+Troubleshooting
+Issue: Output directories remain empty after running the application
+
+Diagnostic hint: Confirm the test files were created in input, transform-input, or error-input before starting mvn exec:java, since the file consumer only polls on its configured delay while the app is running.
+Issue: RouteValidator reports a route status other than Started, or the application throws an exception on startup
+
+Diagnostic hint: Run mvn compile separately and check for XML parsing errors first; then inspect camel-context.xml for mismatched <when>/<choice> tags or an incorrect errorHandlerRef value, since these are the most common causes of a route failing to initialize.
+Conclusion
+In this lab, you built a complete Apache Camel application configured entirely through XML DSL, implementing content-based routing, message transformation, and dead-letter error handling across three independent routes. You compiled and ran the routes with Maven, fed them controlled test data, and confirmed correct behavior both by inspecting output file contents and by using a dedicated route validator alongside a file-count monitoring script with explicit expected-versus-actual criteria. This satisfies the lab's objectives of defining XML DSL routes, testing message transformation and routing logic, and validating routes through the Camel context using concrete, checkable evidence rather than visual inspection alone. From here, a natural next step is exploring Camel's Java DSL for the same patterns to compare readability and maintainability, or extending this project with additional components such as camel-jms or camel-http to route messages between systems rather than just the local filesystem.

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="
+       http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <camelContext id="camelContext" xmlns="http://camel.apache.org/schema/spring">
+
+        <!-- Route 1: Content-based routing by file extension -->
+        <route id="fileProcessingRoute">
+            <from uri="file:input?noop=true&amp;delay=2000"/>
+            <log message="Processing file: ${header.CamelFileName}"/>
+            <choice>
+                <when>
+                    <simple>${header.CamelFileName} ends with '.xml'</simple>
+                    <transform>
+                        <simple>XML File Processed: ${body}</simple>
+                    </transform>
+                    <to uri="file:output/xml"/>
+                </when>
+                <when>
+                    <simple>${header.CamelFileName} ends with '.json'</simple>
+                    <transform>
+                        <simple>JSON File Processed: ${body}</simple>
+                    </transform>
+                    <to uri="file:output/json"/>
+                </when>
+                <otherwise>
+                    <transform>
+                        <simple>Generic File Processed: ${body}</simple>
+                    </transform>
+                    <to uri="file:output/other"/>
+                </otherwise>
+            </choice>
+        </route>
+
+        <!-- Route 2: Message transformation into a JSON envelope -->
+        <route id="messageTransformationRoute">
+            <from uri="file:transform-input?noop=true&amp;delay=2000"/>
+            <log message="Transforming file: ${header.CamelFileName}"/>
+            <transform>
+                <simple>{"processedFile": "${header.CamelFileName}", "originalContent": "${body}", "status": "PROCESSED"}</simple>
+            </transform>
+            <to uri="file:transform-output"/>
+        </route>
+
+        <!-- Route 3: Error handling with a dead letter channel -->
+        <route id="errorHandlingRoute" errorHandlerRef="deadLetterErrorHandler">
+            <from uri="file:error-input?noop=true&amp;delay=2000"/>
+            <log message="Processing with error handling: ${header.CamelFileName}"/>
+            <choice>
+                <when>
+                    <simple>${header.CamelFileName} contains 'error'</simple>
+                    <throwException exceptionType="java.lang.RuntimeException"
+                                   message="Simulated processing error for file: ${header.CamelFileName}"/>
+                </when>
+                <otherwise>
+                    <transform>
+                        <simple>Successfully processed: ${header.CamelFileName}</simple>
+                    </transform>
+                    <to uri="file:error-output/success"/>
+                </otherwise>
+            </choice>
+        </route>
+
+    </camelContext>
+
+    <bean id="deadLetterErrorHandler"
+          class="org.apache.camel.builder.DeadLetterChannelBuilder">
+        <property name="deadLetterUri" value="file:error-output/failed"/>
+        <property name="useOriginalMessage" value="true"/>
+    </bean>
+
+</beans>
