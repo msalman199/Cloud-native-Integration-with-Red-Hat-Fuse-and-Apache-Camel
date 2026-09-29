@@ -1,0 +1,5 @@
+/home/centos/camel-processor-lab/camel-processor-demo/src/main/java/com/alnafi/camel/processor/MessageValidatorProcessor.java
+/home/centos/camel-processor-lab/camel-processor-demo/src/main/java/com/alnafi/camel/processor/MessageEnricherProcessor.java
+/home/centos/camel-processor-lab/camel-processor-demo/src/main/java/com/alnafi/camel/App.java
+/home/centos/camel-processor-lab/camel-processor-demo/src/main/java/com/alnafi/camel/processor/PerformanceTestProcessor.java
+/home/centos/camel-processor-lab/camel-processor-demo/src/main/java/com/alnafi/camel/CamelProcessorApplication.java

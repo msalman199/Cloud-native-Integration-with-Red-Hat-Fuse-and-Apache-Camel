@@ -1,0 +1,818 @@
+Lab 4: Implementing Camel Processors
+Objectives
+By the end of this lab, you will be able to:
+
+Understand the role of processors in Apache Camel integration patterns
+Implement custom processors by implementing the Processor interface
+Insert custom processors into Camel routes effectively
+Test and validate processor functionality on message content
+Debug and troubleshoot processor implementations
+Apply best practices for processor development in enterprise integration scenarios
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Java programming concepts
+Familiarity with Apache Camel fundamentals and routing concepts
+Knowledge of Maven build tool and dependency management
+Understanding of message exchange patterns in integration frameworks
+Experience with IDE usage (preferably IntelliJ IDEA or Eclipse)
+Technical Requirements:
+
+Java 11 or higher
+Apache Maven 3.6+
+Apache Camel 3.x
+Basic understanding of XML and JSON message formats
+Lab Environment Setup
+Good News! Al Nafi provides ready-to-use Linux-based cloud machines for this lab. Simply click Start Lab and you'll have access to a fully configured environment with all necessary tools pre-installed. No need to build your own VM or install software locally.
+
+Your cloud machine includes:
+
+OpenJDK 11
+Apache Maven 3.8+
+Apache Camel 3.20+
+VS Code with Java extensions
+All required dependencies pre-configured
+Task 1: Create a Custom Processor Implementation
+Subtask 1.1: Set Up the Maven Project Structure
+First, let's create a new Maven project for our Camel processor implementation.
+
+Open the terminal in your cloud machine
+Create a new directory for the project:
+mkdir camel-processor-lab
+cd camel-processor-lab
+Create the Maven project structure:
+mvn archetype:generate -DgroupId=com.alnafi.camel \
+    -DartifactId=camel-processor-demo \
+    -DarchetypeArtifactId=maven-archetype-quickstart \
+    -DinteractiveMode=false
+Navigate to the project directory:
+cd camel-processor-demo
+Subtask 1.2: Configure Maven Dependencies
+Open the pom.xml file:
+code pom.xml
+Replace the content with the following configuration:
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.alnafi.camel</groupId>
+    <artifactId>camel-processor-demo</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <camel.version>3.20.2</camel.version>
+        <slf4j.version>1.7.36</slf4j.version>
+    </properties>
+
+    <dependencies>
+        <!-- Apache Camel Core -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel Main for standalone applications -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-main</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel Timer component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-timer</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel Log component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-log</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-test-junit5</artifactId>
+            <version>${camel.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Save the file and update dependencies:
+mvn clean compile
+Subtask 1.3: Implement the Custom Processor
+Now let's create our first custom processor that will modify message content.
+
+Create the processor package structure:
+mkdir -p src/main/java/com/alnafi/camel/processor
+Create a custom processor for message transformation:
+code src/main/java/com/alnafi/camel/processor/MessageEnricherProcessor.java
+Implement the processor with the following code:
+package com.alnafi.camel.processor;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+/**
+ * Custom processor that enriches messages with timestamp and metadata
+ */
+public class MessageEnricherProcessor implements Processor {
+    
+    private static final Logger logger = LoggerFactory.getLogger(MessageEnricherProcessor.class);
+    private final String processorName;
+    
+    public MessageEnricherProcessor(String processorName) {
+        this.processorName = processorName;
+    }
+    
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        // Get the original message body
+        String originalMessage = exchange.getIn().getBody(String.class);
+        
+        // Log the processing activity
+        logger.info("Processing message in {}: {}", processorName, originalMessage);
+        
+        // Create timestamp
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        
+        // Enrich the message with metadata
+        String enrichedMessage = createEnrichedMessage(originalMessage, timestamp);
+        
+        // Set the enriched message as the new body
+        exchange.getIn().setBody(enrichedMessage);
+        
+        // Add custom headers
+        exchange.getIn().setHeader("ProcessedBy", processorName);
+        exchange.getIn().setHeader("ProcessedAt", timestamp);
+        exchange.getIn().setHeader("MessageLength", enrichedMessage.length());
+        
+        logger.info("Message enriched successfully. New length: {}", enrichedMessage.length());
+    }
+    
+    private String createEnrichedMessage(String originalMessage, String timestamp) {
+        StringBuilder enriched = new StringBuilder();
+        enriched.append("=== MESSAGE PROCESSED BY ").append(processorName.toUpperCase()).append(" ===\n");
+        enriched.append("Timestamp: ").append(timestamp).append("\n");
+        enriched.append("Original Content: ").append(originalMessage).append("\n");
+        enriched.append("Content Length: ").append(originalMessage.length()).append(" characters\n");
+        enriched.append("Status: PROCESSED\n");
+        enriched.append("=== END OF PROCESSED MESSAGE ===");
+        
+        return enriched.toString();
+    }
+}
+Subtask 1.4: Create a Data Validation Processor
+Let's create another processor that validates and filters message content.
+
+Create a validation processor:
+code src/main/java/com/alnafi/camel/processor/MessageValidatorProcessor.java
+Implement the validation logic:
+package com.alnafi.camel.processor;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Custom processor that validates message content and adds validation results
+ */
+public class MessageValidatorProcessor implements Processor {
+    
+    private static final Logger logger = LoggerFactory.getLogger(MessageValidatorProcessor.class);
+    private final int minLength;
+    private final int maxLength;
+    
+    public MessageValidatorProcessor(int minLength, int maxLength) {
+        this.minLength = minLength;
+        this.maxLength = maxLength;
+    }
+    
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        String message = exchange.getIn().getBody(String.class);
+        
+        logger.info("Validating message: {}", message);
+        
+        // Perform validation checks
+        ValidationResult result = validateMessage(message);
+        
+        // Add validation headers
+        exchange.getIn().setHeader("ValidationStatus", result.isValid() ? "VALID" : "INVALID");
+        exchange.getIn().setHeader("ValidationErrors", result.getErrors());
+        exchange.getIn().setHeader("MessageWordCount", countWords(message));
+        
+        // Modify message based on validation
+        if (result.isValid()) {
+            String validatedMessage = "[VALIDATED] " + message + " [VALIDATION_PASSED]";
+            exchange.getIn().setBody(validatedMessage);
+            logger.info("Message validation passed");
+        } else {
+            String errorMessage = "[VALIDATION_FAILED] " + message + " [ERRORS: " + result.getErrors() + "]";
+            exchange.getIn().setBody(errorMessage);
+            logger.warn("Message validation failed: {}", result.getErrors());
+        }
+    }
+    
+    private ValidationResult validateMessage(String message) {
+        ValidationResult result = new ValidationResult();
+        
+        if (message == null || message.trim().isEmpty()) {
+            result.addError("Message is null or empty");
+            return result;
+        }
+        
+        if (message.length() < minLength) {
+            result.addError("Message too short (minimum " + minLength + " characters)");
+        }
+        
+        if (message.length() > maxLength) {
+            result.addError("Message too long (maximum " + maxLength + " characters)");
+        }
+        
+        // Check for prohibited content
+        if (message.toLowerCase().contains("error") || message.toLowerCase().contains("fail")) {
+            result.addError("Message contains prohibited keywords");
+        }
+        
+        return result;
+    }
+    
+    private int countWords(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return 0;
+        }
+        return message.trim().split("\\s+").length;
+    }
+    
+    // Inner class for validation results
+    private static class ValidationResult {
+        private boolean valid = true;
+        private StringBuilder errors = new StringBuilder();
+        
+        public void addError(String error) {
+            if (errors.length() > 0) {
+                errors.append("; ");
+            }
+            errors.append(error);
+            valid = false;
+        }
+        
+        public boolean isValid() {
+            return valid;
+        }
+        
+        public String getErrors() {
+            return errors.toString();
+        }
+    }
+}
+Task 2: Insert Custom Processors into Camel Routes
+Subtask 2.1: Create a Route Builder with Processors
+Now let's create Camel routes that use our custom processors.
+
+Create the route builder class:
+code src/main/java/com/alnafi/camel/route/ProcessorDemoRouteBuilder.java
+Implement the route with processors:
+package com.alnafi.camel.route;
+
+import com.alnafi.camel.processor.MessageEnricherProcessor;
+import com.alnafi.camel.processor.MessageValidatorProcessor;
+import org.apache.camel.builder.RouteBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Route builder demonstrating custom processor usage
+ */
+public class ProcessorDemoRouteBuilder extends RouteBuilder {
+    
+    private static final Logger logger = LoggerFactory.getLogger(ProcessorDemoRouteBuilder.class);
+    
+    @Override
+    public void configure() throws Exception {
+        
+        // Route 1: Basic message processing with enrichment
+        from("timer:messageGenerator?period=5000")
+            .routeId("message-enrichment-route")
+            .log("Starting message processing...")
+            .setBody(constant("Hello from Camel Processor Lab"))
+            .log("Original message: ${body}")
+            .process(new MessageEnricherProcessor("EnrichmentProcessor"))
+            .log("After enrichment: ${body}")
+            .log("Headers: ${headers}")
+            .to("log:enriched-messages?level=INFO");
+        
+        // Route 2: Message validation and processing chain
+        from("timer:validationGenerator?period=8000")
+            .routeId("message-validation-route")
+            .log("Starting validation processing...")
+            .choice()
+                .when(simple("${random(1,4)} == 1"))
+                    .setBody(constant("Short"))
+                .when(simple("${random(1,4)} == 2"))
+                    .setBody(constant("This is a normal message for processing"))
+                .when(simple("${random(1,4)} == 3"))
+                    .setBody(constant("This message contains an error keyword"))
+                .otherwise()
+                    .setBody(constant("This is a very long message that exceeds the maximum length limit and should trigger validation errors"))
+            .end()
+            .log("Message to validate: ${body}")
+            .process(new MessageValidatorProcessor(10, 100))
+            .log("Validation status: ${header.ValidationStatus}")
+            .log("Validation errors: ${header.ValidationErrors}")
+            .log("Word count: ${header.MessageWordCount}")
+            .choice()
+                .when(header("ValidationStatus").isEqualTo("VALID"))
+                    .log("Processing valid message...")
+                    .process(new MessageEnricherProcessor("ValidationProcessor"))
+                    .to("log:valid-messages?level=INFO")
+                .otherwise()
+                    .log("Handling invalid message...")
+                    .to("log:invalid-messages?level=WARN")
+            .end();
+        
+        // Route 3: Complex processing pipeline
+        from("timer:pipelineGenerator?period=12000")
+            .routeId("processing-pipeline-route")
+            .log("Starting processing pipeline...")
+            .setBody(constant("Pipeline message for comprehensive processing"))
+            .log("Pipeline input: ${body}")
+            // First processor: Validation
+            .process(new MessageValidatorProcessor(5, 200))
+            .log("After validation: Status=${header.ValidationStatus}")
+            // Second processor: Enrichment (only if valid)
+            .choice()
+                .when(header("ValidationStatus").isEqualTo("VALID"))
+                    .process(new MessageEnricherProcessor("PipelineProcessor"))
+                    .log("Pipeline processing completed successfully")
+                    .setHeader("PipelineStatus", constant("SUCCESS"))
+                .otherwise()
+                    .log("Pipeline processing failed due to validation")
+                    .setHeader("PipelineStatus", constant("FAILED"))
+            .end()
+            .to("log:pipeline-results?level=INFO");
+    }
+}
+Subtask 2.2: Create the Main Application Class
+Create the main application class:
+code src/main/java/com/alnafi/camel/CamelProcessorApplication.java
+Implement the application launcher:
+package com.alnafi.camel;
+
+import com.alnafi.camel.route.ProcessorDemoRouteBuilder;
+import org.apache.camel.main.Main;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Main application class for Camel Processor demonstration
+ */
+public class CamelProcessorApplication {
+    
+    private static final Logger logger = LoggerFactory.getLogger(CamelProcessorApplication.class);
+    
+    public static void main(String[] args) throws Exception {
+        logger.info("Starting Camel Processor Demo Application...");
+        
+        // Create Camel Main instance
+        Main main = new Main();
+        
+        // Add route builder
+        main.addRouteBuilder(new ProcessorDemoRouteBuilder());
+        
+        // Configure application properties
+        main.bind("applicationName", "Camel Processor Lab");
+        main.bind("version", "1.0.0");
+        
+        // Set shutdown timeout
+        main.configure().setShutdownTimeout(10);
+        
+        logger.info("Application configured successfully");
+        logger.info("Routes will start processing messages...");
+        logger.info("Press Ctrl+C to stop the application");
+        
+        // Run the application
+        main.run(args);
+    }
+}
+Task 3: Test the Processor's Impact on Message Content
+Subtask 3.1: Build and Run the Application
+Compile the project:
+mvn clean compile
+Run the application:
+mvn exec:java -Dexec.mainClass="com.alnafi.camel.CamelProcessorApplication"
+Observe the console output to see how processors modify messages. You should see output similar to:
+INFO  Starting message processing...
+INFO  Original message: Hello from Camel Processor Lab
+INFO  Processing message in EnrichmentProcessor: Hello from Camel Processor Lab
+INFO  Message enriched successfully. New length: 234
+INFO  After enrichment: === MESSAGE PROCESSED BY ENRICHMENTPROCESSOR ===
+Timestamp: 2024-01-15T10:30:45.123
+Original Content: Hello from Camel Processor Lab
+Content Length: 32 characters
+Status: PROCESSED
+=== END OF PROCESSED MESSAGE ===
+Subtask 3.2: Create Unit Tests for Processors
+Let's create comprehensive tests to validate our processor functionality.
+
+Create the test directory structure:
+mkdir -p src/test/java/com/alnafi/camel/processor
+Create a test class for the enricher processor:
+code src/test/java/com/alnafi/camel/processor/MessageEnricherProcessorTest.java
+Implement the test:
+package com.alnafi.camel.processor;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.impl.DefaultCamelContext;
+import org.apache.camel.support.DefaultExchange;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class MessageEnricherProcessorTest {
+    
+    private MessageEnricherProcessor processor;
+    private Exchange exchange;
+    
+    @BeforeEach
+    void setUp() {
+        processor = new MessageEnricherProcessor("TestProcessor");
+        exchange = new DefaultExchange(new DefaultCamelContext());
+    }
+    
+    @Test
+    void testProcessorEnrichesMessage() throws Exception {
+        // Given
+        String originalMessage = "Test message";
+        exchange.getIn().setBody(originalMessage);
+        
+        // When
+        processor.process(exchange);
+        
+        // Then
+        String processedMessage = exchange.getIn().getBody(String.class);
+        assertNotNull(processedMessage);
+        assertTrue(processedMessage.contains("TESTPROCESSOR"));
+        assertTrue(processedMessage.contains(originalMessage));
+        assertTrue(processedMessage.contains("PROCESSED"));
+    }
+    
+    @Test
+    void testProcessorAddsHeaders() throws Exception {
+        // Given
+        String originalMessage = "Test message";
+        exchange.getIn().setBody(originalMessage);
+        
+        // When
+        processor.process(exchange);
+        
+        // Then
+        assertEquals("TestProcessor", exchange.getIn().getHeader("ProcessedBy"));
+        assertNotNull(exchange.getIn().getHeader("ProcessedAt"));
+        assertTrue((Integer) exchange.getIn().getHeader("MessageLength") > originalMessage.length());
+    }
+    
+    @Test
+    void testProcessorHandlesNullMessage() throws Exception {
+        // Given
+        exchange.getIn().setBody(null);
+        
+        // When
+        processor.process(exchange);
+        
+        // Then
+        String processedMessage = exchange.getIn().getBody(String.class);
+        assertNotNull(processedMessage);
+        assertTrue(processedMessage.contains("null"));
+    }
+}
+Create a test for the validator processor:
+code src/test/java/com/alnafi/camel/processor/MessageValidatorProcessorTest.java
+Implement the validator test:
+package com.alnafi.camel.processor;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.impl.DefaultCamelContext;
+import org.apache.camel.support.DefaultExchange;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class MessageValidatorProcessorTest {
+    
+    private MessageValidatorProcessor processor;
+    private Exchange exchange;
+    
+    @BeforeEach
+    void setUp() {
+        processor = new MessageValidatorProcessor(10, 100);
+        exchange = new DefaultExchange(new DefaultCamelContext());
+    }
+    
+    @Test
+    void testValidMessageProcessing() throws Exception {
+        // Given
+        String validMessage = "This is a valid message for testing";
+        exchange.getIn().setBody(validMessage);
+        
+        // When
+        processor.process(exchange);
+        
+        // Then
+        assertEquals("VALID", exchange.getIn().getHeader("ValidationStatus"));
+        assertTrue(exchange.getIn().getBody(String.class).contains("[VALIDATED]"));
+        assertTrue(exchange.getIn().getBody(String.class).contains("[VALIDATION_PASSED]"));
+    }
+    
+    @Test
+    void testInvalidShortMessage() throws Exception {
+        // Given
+        String shortMessage = "Short";
+        exchange.getIn().setBody(shortMessage);
+        
+        // When
+        processor.process(exchange);
+        
+        // Then
+        assertEquals("INVALID", exchange.getIn().getHeader("ValidationStatus"));
+        assertTrue(exchange.getIn().getBody(String.class).contains("[VALIDATION_FAILED]"));
+        assertTrue(exchange.getIn().getHeader("ValidationErrors").toString().contains("too short"));
+    }
+    
+    @Test
+    void testInvalidLongMessage() throws Exception {
+        // Given
+        String longMessage = "This is a very long message that exceeds the maximum length limit and should trigger validation errors in our processor";
+        exchange.getIn().setBody(longMessage);
+        
+        // When
+        processor.process(exchange);
+        
+        // Then
+        assertEquals("INVALID", exchange.getIn().getHeader("ValidationStatus"));
+        assertTrue(exchange.getIn().getHeader("ValidationErrors").toString().contains("too long"));
+    }
+    
+    @Test
+    void testProhibitedKeywords() throws Exception {
+        // Given
+        String messageWithError = "This message contains an error";
+        exchange.getIn().setBody(messageWithError);
+        
+        // When
+        processor.process(exchange);
+        
+        // Then
+        assertEquals("INVALID", exchange.getIn().getHeader("ValidationStatus"));
+        assertTrue(exchange.getIn().getHeader("ValidationErrors").toString().contains("prohibited keywords"));
+    }
+    
+    @Test
+    void testWordCount() throws Exception {
+        // Given
+        String message = "This is a test message";
+        exchange.getIn().setBody(message);
+        
+        // When
+        processor.process(exchange);
+        
+        // Then
+        assertEquals(5, exchange.getIn().getHeader("MessageWordCount"));
+    }
+}
+Subtask 3.3: Run Tests and Validate Results
+Run the unit tests:
+mvn test
+Verify all tests pass and review the test output:
+mvn test -Dtest=MessageEnricherProcessorTest
+mvn test -Dtest=MessageValidatorProcessorTest
+Subtask 3.4: Create Integration Tests
+Create an integration test:
+code src/test/java/com/alnafi/camel/route/ProcessorIntegrationTest.java
+Implement the integration test:
+package com.alnafi.camel.route;
+
+import com.alnafi.camel.processor.MessageEnricherProcessor;
+import com.alnafi.camel.processor.MessageValidatorProcessor;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.mock.MockEndpoint;
+import org.apache.camel.test.junit5.CamelTestSupport;
+import org.junit.jupiter.api.Test;
+
+public class ProcessorIntegrationTest extends CamelTestSupport {
+    
+    @Test
+    public void testProcessorChain() throws Exception {
+        // Setup mock endpoint
+        MockEndpoint mockEndpoint = getMockEndpoint("mock:result");
+        mockEndpoint.expectedMessageCount(1);
+        
+        // Send test message
+        template.sendBody("direct:start", "Integration test message");
+        
+        // Verify results
+        assertMockEndpointsSatisfied();
+        
+        // Verify message transformation
+        String processedMessage = mockEndpoint.getReceivedExchanges().get(0).getIn().getBody(String.class);
+        assertTrue(processedMessage.contains("[VALIDATED]"));
+        assertTrue(processedMessage.contains("INTEGRATIONPROCESSOR"));
+    }
+    
+    @Override
+    protected RouteBuilder createRouteBuilder() throws Exception {
+        return new RouteBuilder() {
+            @Override
+            public void configure() throws Exception {
+                from("direct:start")
+                    .process(new MessageValidatorProcessor(5, 200))
+                    .choice()
+                        .when(header("ValidationStatus").isEqualTo("VALID"))
+                            .process(new MessageEnricherProcessor("IntegrationProcessor"))
+                        .otherwise()
+                            .setBody(constant("Validation failed"))
+                    .end()
+                    .to("mock:result");
+            }
+        };
+    }
+}
+Run the integration test:
+mvn test -Dtest=ProcessorIntegrationTest
+Advanced Testing and Monitoring
+Subtask 3.5: Add Logging Configuration
+Create a logging configuration file:
+code src/main/resources/simplelogger.properties
+Add logging configuration:
+# Simple Logger Configuration
+org.slf4j.simpleLogger.defaultLogLevel=INFO
+org.slf4j.simpleLogger.log.com.alnafi.camel=DEBUG
+org.slf4j.simpleLogger.log.org.apache.camel=INFO
+org.slf4j.simpleLogger.showDateTime=true
+org.slf4j.simpleLogger.dateTimeFormat=yyyy-MM-dd HH:mm:ss.SSS
+org.slf4j.simpleLogger.showThreadName=true
+org.slf4j.simpleLogger.showLogName=true
+org.slf4j.simpleLogger.showShortLogName=false
+Subtask 3.6: Performance Testing
+Create a performance test processor:
+code src/main/java/com/alnafi/camel/processor/PerformanceTestProcessor.java
+Implement performance monitoring:
+package com.alnafi.camel.processor;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class PerformanceTestProcessor implements Processor {
+    
+    private static final Logger logger = LoggerFactory.getLogger(PerformanceTestProcessor.class);
+    private long totalProcessingTime = 0;
+    private int messageCount = 0;
+    
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        long startTime = System.currentTimeMillis();
+        
+        // Simulate processing work
+        String message = exchange.getIn().getBody(String.class);
+        String processedMessage = "PERFORMANCE_TEST: " + message + " [Processed at: " + startTime + "]";
+        
+        // Add some processing delay to simulate real work
+        Thread.sleep(10);
+        
+        exchange.getIn().setBody(processedMessage);
+        
+        long endTime = System.currentTimeMillis();
+        long processingTime = endTime - startTime;
+        
+        synchronized (this) {
+            totalProcessingTime += processingTime;
+            messageCount++;
+            
+            if (messageCount % 10 == 0) {
+                double averageTime = (double) totalProcessingTime / messageCount;
+                logger.info("Performance Stats - Messages: {}, Average Time: {:.2f}ms", 
+                           messageCount, averageTime);
+            }
+        }
+        
+        exchange.getIn().setHeader("ProcessingTime", processingTime);
+        exchange.getIn().setHeader("MessageNumber", messageCount);
+    }
+}
+Troubleshooting Common Issues
+Common Problem 1: ClassNotFoundException
+Issue: Processor class not found during runtime.
+
+Solution:
+
+# Verify compilation
+mvn clean compile
+
+# Check classpath
+mvn dependency:tree
+Common Problem 2: Exchange Processing Errors
+Issue: Null pointer exceptions in processor.
+
+Solution: Always check for null values:
+
+@Override
+public void process(Exchange exchange) throws Exception {
+    if (exchange == null || exchange.getIn() == null) {
+        throw new IllegalArgumentException("Exchange or message is null");
+    }
+    
+    String body = exchange.getIn().getBody(String.class);
+    if (body == null) {
+        body = ""; // Handle null body
+    }
+    
+    // Continue processing...
+}
+Common Problem 3: Route Not Starting
+Issue: Routes don't start or process messages.
+
+Solution: Check route configuration:
+
+# Enable debug logging
+mvn exec:java -Dexec.mainClass="com.alnafi.camel.CamelProcessorApplication" -Dorg.slf4j.simpleLogger.log.org.apache.camel=DEBUG
+Common Problem 4: Memory Issues
+Issue: OutOfMemoryError with large messages.
+
+Solution: Implement streaming or chunking:
+
+// For large messages, consider streaming
+if (message.length() > 10000) {
+    // Process in chunks or use streaming
+    logger.warn("Large message detected, consider streaming approach");
+}
+Best Practices and Tips
+Performance Optimization
+Avoid Heavy Processing in Processors:
+
+Keep processor logic lightweight
+Use asynchronous processing for heavy operations
+Consider using thread pools for parallel processing
+Memory Management:
+
+Don't store large objects in processor instances
+Clean up resources properly
+Use streaming for large messages
+Error Handling:
+
+Always implement proper exception handling
+Use Camel's error handling mechanisms
+Log errors appropriately
+Code Quality
+Make Processors Stateless: Avoid instance variables that change state
+Use Dependency Injection: For complex dependencies
+Implement Proper Logging: Use appropriate log levels
+Write Unit Tests: Test processors in isolation
+Conclusion
+Congratulations! You have successfully completed Lab 4: Implementing Camel Processors. In this comprehensive lab, you have accomplished the following:
+
+What You Learned
+Custom Processor Implementation: You created two different types of processors - a message enricher and a message validator - by implementing the Processor interface, demonstrating how to modify message content programmatically.
+
+Route Integration: You successfully integrated custom processors into Camel routes, showing how processors fit into the broader integration pattern and can be chained together for complex message processing workflows.
