@@ -1,0 +1,520 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ------------------< com.example:camel-error-handling >------------------
+[INFO] Building camel-error-handling 1.0.0
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- exec-maven-plugin:3.1.0:java (default-cli) @ camel-error-handling ---
+[com.example.camel.ErrorHandlingApplication.main()] INFO com.example.camel.ErrorHandlingApplication - Starting Camel Error Handling Application...
+[com.example.camel.ErrorHandlingApplication.main()] INFO com.example.camel.ErrorHandlingApplication - Monitoring directories:
+[com.example.camel.ErrorHandlingApplication.main()] INFO com.example.camel.ErrorHandlingApplication -   - Input: input/
+[com.example.camel.ErrorHandlingApplication.main()] INFO com.example.camel.ErrorHandlingApplication -   - Success: output/success/
+[com.example.camel.ErrorHandlingApplication.main()] INFO com.example.camel.ErrorHandlingApplication -   - Business errors: output/business-errors/
+[com.example.camel.ErrorHandlingApplication.main()] INFO com.example.camel.ErrorHandlingApplication -   - Dead letter: output/dead-letter/
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.main.MainSupport - Apache Camel (Main) 3.20.2 is starting
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext - Apache Camel 3.20.2 (camel-1) is starting
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext - Routes startup (started:3)
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext -     Started dlq-main-route (file://input)
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext -     Started dead-letter-handler (direct://deadLetterQueue)
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext -     Started business-error-handler (direct://businessErrorQueue)
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext - Apache Camel 3.20.2 (camel-1) started in 277ms (build:37ms init:200ms start:40ms JVM-uptime:3s)
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: normal-message.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This is a normal message for processing
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Successfully processed message: This is a normal message for processing
+
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Successfully processed: normal-message.txt
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: business-error-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains business-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating business exception for message: This message contains business-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR dlq-main-route - Business exception - routing to business error queue: Business rule violation: invalid customer data
+[Camel (camel-1) thread #1 - file://input] WARN com.example.camel.DeadLetterChannelRoute$BusinessErrorProcessor - Business error logged - File: business-error-test.txt, Error: Business rule violation: invalid customer data
+[Camel (camel-1) thread #1 - file://input] INFO business-error-handler - Business error logged and saved
+[Camel (camel-1) thread #1 - file://input] ERROR org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000001 on ExchangeId: 3C3DEDE8D76C167-0000000000000001). Exhausted after delivery attempt: 1 caught: com.example.camel.BusinessException: Business rule violation: invalid customer data. Processed by failure processor: FatalFallbackErrorHandler[null]
+
+Message History (source location and message history is disabled)
+---------------------------------------------------------------------------------------------------------------------------------------
+Source                                   ID                             Processor                                          Elapsed (ms)
+                                         dlq-main-route/dlq-main-route  from[file://input?delay=2000&idempotent=false&noop     -1254294
+
+Stacktrace
+---------------------------------------------------------------------------------------------------------------------------------------
+com.example.camel.BusinessException: Business rule violation: invalid customer data
+	at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:20)
+	at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.doRun(RedeliveryErrorHandler.java:818)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.run(RedeliveryErrorHandler.java:726)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor$Worker.schedule(DefaultReactiveExecutor.java:181)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor.scheduleMain(DefaultReactiveExecutor.java:59)
+	at org.apache.camel.processor.Pipeline.process(Pipeline.java:165)
+	at org.apache.camel.impl.engine.CamelInternalProcessor.process(CamelInternalProcessor.java:392)
+	at org.apache.camel.component.file.GenericFileConsumer.processExchange(GenericFileConsumer.java:492)
+	at org.apache.camel.component.file.GenericFileConsumer.processBatch(GenericFileConsumer.java:245)
+	at org.apache.camel.component.file.GenericFileConsumer.poll(GenericFileConsumer.java:206)
+	at org.apache.camel.support.ScheduledPollConsumer.doRun(ScheduledPollConsumer.java:202)
+	at org.apache.camel.support.ScheduledPollConsumer.run(ScheduledPollConsumer.java:116)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: technical-error-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 0): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000002 on ExchangeId: 3C3DEDE8D76C167-0000000000000002). On delivery attempt: 0 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 1): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 1): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000002 on ExchangeId: 3C3DEDE8D76C167-0000000000000002). On delivery attempt: 1 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 2): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 2): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000002 on ExchangeId: 3C3DEDE8D76C167-0000000000000002). On delivery attempt: 2 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 3): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 3): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000002 on ExchangeId: 3C3DEDE8D76C167-0000000000000002). On delivery attempt: 3 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] ERROR dead-letter-handler - Message sent to Dead Letter Queue after  redeliveries
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.DeadLetterChannelRoute$DeadLetterProcessor - Message moved to DLQ - File: technical-error-test.txt, Retries: null, Error: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO dead-letter-handler - Dead letter message saved to file system
+[Camel (camel-1) thread #1 - file://input] ERROR org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000002 on ExchangeId: 3C3DEDE8D76C167-0000000000000002). Exhausted after delivery attempt: 4 caught: com.example.camel.TechnicalException: Database connection failed. Handled by DeadLetterChannel: [direct:deadLetterQueue]
+
+Message History (source location and message history is disabled)
+---------------------------------------------------------------------------------------------------------------------------------------
+Source                                   ID                             Processor                                          Elapsed (ms)
+                                         dlq-main-route/dlq-main-route  from[file://input?delay=2000&idempotent=false&noop     -1251278
+
+Stacktrace
+---------------------------------------------------------------------------------------------------------------------------------------
+com.example.camel.TechnicalException: Database connection failed
+	at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:25)
+	at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.redeliver(RedeliveryErrorHandler.java:893)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor$Worker.schedule(DefaultReactiveExecutor.java:181)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor.scheduleMain(DefaultReactiveExecutor.java:59)
+	at org.apache.camel.processor.Pipeline.process(Pipeline.java:165)
+	at org.apache.camel.impl.engine.CamelInternalProcessor.process(CamelInternalProcessor.java:392)
+	at org.apache.camel.component.file.GenericFileConsumer.processExchange(GenericFileConsumer.java:492)
+	at org.apache.camel.component.file.GenericFileConsumer.processBatch(GenericFileConsumer.java:245)
+	at org.apache.camel.component.file.GenericFileConsumer.poll(GenericFileConsumer.java:206)
+	at org.apache.camel.support.ScheduledPollConsumer.doRun(ScheduledPollConsumer.java:202)
+	at org.apache.camel.support.ScheduledPollConsumer.run(ScheduledPollConsumer.java:116)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+	Suppressed: com.example.camel.TechnicalException: Database connection failed
+		... 18 more
+		Suppressed: com.example.camel.TechnicalException: Database connection failed
+			... 18 more
+			Suppressed: com.example.camel.TechnicalException: Database connection failed
+				at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:25)
+				at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+				at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.doRun(RedeliveryErrorHandler.java:818)
+				at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.run(RedeliveryErrorHandler.java:726)
+				... 15 more
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: retry-success-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating temporary failure (redelivery 0): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000003 on ExchangeId: 3C3DEDE8D76C167-0000000000000003). On delivery attempt: 0 caught: com.example.camel.TechnicalException: Temporary service unavailable
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 1): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating temporary failure (redelivery 1): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000003 on ExchangeId: 3C3DEDE8D76C167-0000000000000003). On delivery attempt: 1 caught: com.example.camel.TechnicalException: Temporary service unavailable
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 2): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing succeeded after 2 redeliveries: This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Successfully processed message: This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Successfully processed: retry-success-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: normal-message.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This is a normal message for processing
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Successfully processed message: This is a normal message for processing
+
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Successfully processed: normal-message.txt
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: business-error-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains business-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating business exception for message: This message contains business-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR dlq-main-route - Business exception - routing to business error queue: Business rule violation: invalid customer data
+[Camel (camel-1) thread #1 - file://input] WARN com.example.camel.DeadLetterChannelRoute$BusinessErrorProcessor - Business error logged - File: business-error-test.txt, Error: Business rule violation: invalid customer data
+[Camel (camel-1) thread #1 - file://input] INFO business-error-handler - Business error logged and saved
+[Camel (camel-1) thread #1 - file://input] ERROR org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000005 on ExchangeId: 3C3DEDE8D76C167-0000000000000005). Exhausted after delivery attempt: 1 caught: com.example.camel.BusinessException: Business rule violation: invalid customer data. Processed by failure processor: FatalFallbackErrorHandler[null]
+
+Message History (source location and message history is disabled)
+---------------------------------------------------------------------------------------------------------------------------------------
+Source                                   ID                             Processor                                          Elapsed (ms)
+                                         dlq-main-route/dlq-main-route  from[file://input?delay=2000&idempotent=false&noop     -1247261
+
+Stacktrace
+---------------------------------------------------------------------------------------------------------------------------------------
+com.example.camel.BusinessException: Business rule violation: invalid customer data
+	at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:20)
+	at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.doRun(RedeliveryErrorHandler.java:818)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.run(RedeliveryErrorHandler.java:726)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor$Worker.schedule(DefaultReactiveExecutor.java:181)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor.scheduleMain(DefaultReactiveExecutor.java:59)
+	at org.apache.camel.processor.Pipeline.process(Pipeline.java:165)
+	at org.apache.camel.impl.engine.CamelInternalProcessor.process(CamelInternalProcessor.java:392)
+	at org.apache.camel.component.file.GenericFileConsumer.processExchange(GenericFileConsumer.java:492)
+	at org.apache.camel.component.file.GenericFileConsumer.processBatch(GenericFileConsumer.java:245)
+	at org.apache.camel.component.file.GenericFileConsumer.poll(GenericFileConsumer.java:206)
+	at org.apache.camel.support.ScheduledPollConsumer.doRun(ScheduledPollConsumer.java:202)
+	at org.apache.camel.support.ScheduledPollConsumer.run(ScheduledPollConsumer.java:116)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: technical-error-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 0): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000006 on ExchangeId: 3C3DEDE8D76C167-0000000000000006). On delivery attempt: 0 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 1): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 1): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000006 on ExchangeId: 3C3DEDE8D76C167-0000000000000006). On delivery attempt: 1 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 2): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 2): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000006 on ExchangeId: 3C3DEDE8D76C167-0000000000000006). On delivery attempt: 2 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 3): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 3): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000006 on ExchangeId: 3C3DEDE8D76C167-0000000000000006). On delivery attempt: 3 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] ERROR dead-letter-handler - Message sent to Dead Letter Queue after  redeliveries
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.DeadLetterChannelRoute$DeadLetterProcessor - Message moved to DLQ - File: technical-error-test.txt, Retries: null, Error: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO dead-letter-handler - Dead letter message saved to file system
+[Camel (camel-1) thread #1 - file://input] ERROR org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000006 on ExchangeId: 3C3DEDE8D76C167-0000000000000006). Exhausted after delivery attempt: 4 caught: com.example.camel.TechnicalException: Database connection failed. Handled by DeadLetterChannel: [direct:deadLetterQueue]
+
+Message History (source location and message history is disabled)
+---------------------------------------------------------------------------------------------------------------------------------------
+Source                                   ID                             Processor                                          Elapsed (ms)
+                                         dlq-main-route/dlq-main-route  from[file://input?delay=2000&idempotent=false&noop     -1244251
+
+Stacktrace
+---------------------------------------------------------------------------------------------------------------------------------------
+com.example.camel.TechnicalException: Database connection failed
+	at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:25)
+	at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.redeliver(RedeliveryErrorHandler.java:893)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor$Worker.schedule(DefaultReactiveExecutor.java:181)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor.scheduleMain(DefaultReactiveExecutor.java:59)
+	at org.apache.camel.processor.Pipeline.process(Pipeline.java:165)
+	at org.apache.camel.impl.engine.CamelInternalProcessor.process(CamelInternalProcessor.java:392)
+	at org.apache.camel.component.file.GenericFileConsumer.processExchange(GenericFileConsumer.java:492)
+	at org.apache.camel.component.file.GenericFileConsumer.processBatch(GenericFileConsumer.java:245)
+	at org.apache.camel.component.file.GenericFileConsumer.poll(GenericFileConsumer.java:206)
+	at org.apache.camel.support.ScheduledPollConsumer.doRun(ScheduledPollConsumer.java:202)
+	at org.apache.camel.support.ScheduledPollConsumer.run(ScheduledPollConsumer.java:116)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+	Suppressed: com.example.camel.TechnicalException: Database connection failed
+		... 18 more
+		Suppressed: com.example.camel.TechnicalException: Database connection failed
+			... 18 more
+			Suppressed: com.example.camel.TechnicalException: Database connection failed
+				at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:25)
+				at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+				at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.doRun(RedeliveryErrorHandler.java:818)
+				at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.run(RedeliveryErrorHandler.java:726)
+				... 15 more
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: retry-success-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating temporary failure (redelivery 0): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000007 on ExchangeId: 3C3DEDE8D76C167-0000000000000007). On delivery attempt: 0 caught: com.example.camel.TechnicalException: Temporary service unavailable
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 1): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating temporary failure (redelivery 1): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000007 on ExchangeId: 3C3DEDE8D76C167-0000000000000007). On delivery attempt: 1 caught: com.example.camel.TechnicalException: Temporary service unavailable
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 2): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing succeeded after 2 redeliveries: This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Successfully processed message: This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Successfully processed: retry-success-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: normal-message.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This is a normal message for processing
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Successfully processed message: This is a normal message for processing
+
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Successfully processed: normal-message.txt
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: business-error-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains business-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating business exception for message: This message contains business-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR dlq-main-route - Business exception - routing to business error queue: Business rule violation: invalid customer data
+[Camel (camel-1) thread #1 - file://input] WARN com.example.camel.DeadLetterChannelRoute$BusinessErrorProcessor - Business error logged - File: business-error-test.txt, Error: Business rule violation: invalid customer data
+[Camel (camel-1) thread #1 - file://input] INFO business-error-handler - Business error logged and saved
+[Camel (camel-1) thread #1 - file://input] ERROR org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-0000000000000009 on ExchangeId: 3C3DEDE8D76C167-0000000000000009). Exhausted after delivery attempt: 1 caught: com.example.camel.BusinessException: Business rule violation: invalid customer data. Processed by failure processor: FatalFallbackErrorHandler[null]
+
+Message History (source location and message history is disabled)
+---------------------------------------------------------------------------------------------------------------------------------------
+Source                                   ID                             Processor                                          Elapsed (ms)
+                                         dlq-main-route/dlq-main-route  from[file://input?delay=2000&idempotent=false&noop     -1240237
+
+Stacktrace
+---------------------------------------------------------------------------------------------------------------------------------------
+com.example.camel.BusinessException: Business rule violation: invalid customer data
+	at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:20)
+	at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.doRun(RedeliveryErrorHandler.java:818)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.run(RedeliveryErrorHandler.java:726)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor$Worker.schedule(DefaultReactiveExecutor.java:181)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor.scheduleMain(DefaultReactiveExecutor.java:59)
+	at org.apache.camel.processor.Pipeline.process(Pipeline.java:165)
+	at org.apache.camel.impl.engine.CamelInternalProcessor.process(CamelInternalProcessor.java:392)
+	at org.apache.camel.component.file.GenericFileConsumer.processExchange(GenericFileConsumer.java:492)
+	at org.apache.camel.component.file.GenericFileConsumer.processBatch(GenericFileConsumer.java:245)
+	at org.apache.camel.component.file.GenericFileConsumer.poll(GenericFileConsumer.java:206)
+	at org.apache.camel.support.ScheduledPollConsumer.doRun(ScheduledPollConsumer.java:202)
+	at org.apache.camel.support.ScheduledPollConsumer.run(ScheduledPollConsumer.java:116)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: technical-error-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 0): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000A on ExchangeId: 3C3DEDE8D76C167-000000000000000A). On delivery attempt: 0 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 1): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 1): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000A on ExchangeId: 3C3DEDE8D76C167-000000000000000A). On delivery attempt: 1 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 2): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 2): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000A on ExchangeId: 3C3DEDE8D76C167-000000000000000A). On delivery attempt: 2 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 3): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 3): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000A on ExchangeId: 3C3DEDE8D76C167-000000000000000A). On delivery attempt: 3 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] ERROR dead-letter-handler - Message sent to Dead Letter Queue after  redeliveries
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.DeadLetterChannelRoute$DeadLetterProcessor - Message moved to DLQ - File: technical-error-test.txt, Retries: null, Error: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO dead-letter-handler - Dead letter message saved to file system
+[Camel (camel-1) thread #1 - file://input] ERROR org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000A on ExchangeId: 3C3DEDE8D76C167-000000000000000A). Exhausted after delivery attempt: 4 caught: com.example.camel.TechnicalException: Database connection failed. Handled by DeadLetterChannel: [direct:deadLetterQueue]
+
+Message History (source location and message history is disabled)
+---------------------------------------------------------------------------------------------------------------------------------------
+Source                                   ID                             Processor                                          Elapsed (ms)
+                                         dlq-main-route/dlq-main-route  from[file://input?delay=2000&idempotent=false&noop     -1237229
+
+Stacktrace
+---------------------------------------------------------------------------------------------------------------------------------------
+com.example.camel.TechnicalException: Database connection failed
+	at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:25)
+	at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.redeliver(RedeliveryErrorHandler.java:893)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor$Worker.schedule(DefaultReactiveExecutor.java:181)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor.scheduleMain(DefaultReactiveExecutor.java:59)
+	at org.apache.camel.processor.Pipeline.process(Pipeline.java:165)
+	at org.apache.camel.impl.engine.CamelInternalProcessor.process(CamelInternalProcessor.java:392)
+	at org.apache.camel.component.file.GenericFileConsumer.processExchange(GenericFileConsumer.java:492)
+	at org.apache.camel.component.file.GenericFileConsumer.processBatch(GenericFileConsumer.java:245)
+	at org.apache.camel.component.file.GenericFileConsumer.poll(GenericFileConsumer.java:206)
+	at org.apache.camel.support.ScheduledPollConsumer.doRun(ScheduledPollConsumer.java:202)
+	at org.apache.camel.support.ScheduledPollConsumer.run(ScheduledPollConsumer.java:116)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+	Suppressed: com.example.camel.TechnicalException: Database connection failed
+		... 18 more
+		Suppressed: com.example.camel.TechnicalException: Database connection failed
+			... 18 more
+			Suppressed: com.example.camel.TechnicalException: Database connection failed
+				at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:25)
+				at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+				at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.doRun(RedeliveryErrorHandler.java:818)
+				at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.run(RedeliveryErrorHandler.java:726)
+				... 15 more
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: retry-success-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating temporary failure (redelivery 0): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000B on ExchangeId: 3C3DEDE8D76C167-000000000000000B). On delivery attempt: 0 caught: com.example.camel.TechnicalException: Temporary service unavailable
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 1): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating temporary failure (redelivery 1): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000B on ExchangeId: 3C3DEDE8D76C167-000000000000000B). On delivery attempt: 1 caught: com.example.camel.TechnicalException: Temporary service unavailable
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 2): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing succeeded after 2 redeliveries: This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Successfully processed message: This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Successfully processed: retry-success-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: normal-message.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This is a normal message for processing
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Successfully processed message: This is a normal message for processing
+
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Successfully processed: normal-message.txt
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: business-error-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains business-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating business exception for message: This message contains business-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR dlq-main-route - Business exception - routing to business error queue: Business rule violation: invalid customer data
+[Camel (camel-1) thread #1 - file://input] WARN com.example.camel.DeadLetterChannelRoute$BusinessErrorProcessor - Business error logged - File: business-error-test.txt, Error: Business rule violation: invalid customer data
+[Camel (camel-1) thread #1 - file://input] INFO business-error-handler - Business error logged and saved
+[Camel (camel-1) thread #1 - file://input] ERROR org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000D on ExchangeId: 3C3DEDE8D76C167-000000000000000D). Exhausted after delivery attempt: 1 caught: com.example.camel.BusinessException: Business rule violation: invalid customer data. Processed by failure processor: FatalFallbackErrorHandler[null]
+
+Message History (source location and message history is disabled)
+---------------------------------------------------------------------------------------------------------------------------------------
+Source                                   ID                             Processor                                          Elapsed (ms)
+                                         dlq-main-route/dlq-main-route  from[file://input?delay=2000&idempotent=false&noop     -1233215
+
+Stacktrace
+---------------------------------------------------------------------------------------------------------------------------------------
+com.example.camel.BusinessException: Business rule violation: invalid customer data
+	at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:20)
+	at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.doRun(RedeliveryErrorHandler.java:818)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.run(RedeliveryErrorHandler.java:726)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor$Worker.schedule(DefaultReactiveExecutor.java:181)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor.scheduleMain(DefaultReactiveExecutor.java:59)
+	at org.apache.camel.processor.Pipeline.process(Pipeline.java:165)
+	at org.apache.camel.impl.engine.CamelInternalProcessor.process(CamelInternalProcessor.java:392)
+	at org.apache.camel.component.file.GenericFileConsumer.processExchange(GenericFileConsumer.java:492)
+	at org.apache.camel.component.file.GenericFileConsumer.processBatch(GenericFileConsumer.java:245)
+	at org.apache.camel.component.file.GenericFileConsumer.poll(GenericFileConsumer.java:206)
+	at org.apache.camel.support.ScheduledPollConsumer.doRun(ScheduledPollConsumer.java:202)
+	at org.apache.camel.support.ScheduledPollConsumer.run(ScheduledPollConsumer.java:116)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: technical-error-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 0): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000E on ExchangeId: 3C3DEDE8D76C167-000000000000000E). On delivery attempt: 0 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 1): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 1): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000E on ExchangeId: 3C3DEDE8D76C167-000000000000000E). On delivery attempt: 1 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 2): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 2): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000E on ExchangeId: 3C3DEDE8D76C167-000000000000000E). On delivery attempt: 2 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 3): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating technical exception (redelivery 3): This message contains technical-error keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000E on ExchangeId: 3C3DEDE8D76C167-000000000000000E). On delivery attempt: 3 caught: com.example.camel.TechnicalException: Database connection failed
+[Camel (camel-1) thread #1 - file://input] ERROR dead-letter-handler - Message sent to Dead Letter Queue after  redeliveries
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.DeadLetterChannelRoute$DeadLetterProcessor - Message moved to DLQ - File: technical-error-test.txt, Retries: null, Error: Database connection failed
+[Camel (camel-1) thread #1 - file://input] INFO dead-letter-handler - Dead letter message saved to file system
+[Camel (camel-1) thread #1 - file://input] ERROR org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000E on ExchangeId: 3C3DEDE8D76C167-000000000000000E). Exhausted after delivery attempt: 4 caught: com.example.camel.TechnicalException: Database connection failed. Handled by DeadLetterChannel: [direct:deadLetterQueue]
+
+Message History (source location and message history is disabled)
+---------------------------------------------------------------------------------------------------------------------------------------
+Source                                   ID                             Processor                                          Elapsed (ms)
+                                         dlq-main-route/dlq-main-route  from[file://input?delay=2000&idempotent=false&noop     -1230183
+
+Stacktrace
+---------------------------------------------------------------------------------------------------------------------------------------
+com.example.camel.TechnicalException: Database connection failed
+	at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:25)
+	at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+	at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.redeliver(RedeliveryErrorHandler.java:893)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor$Worker.schedule(DefaultReactiveExecutor.java:181)
+	at org.apache.camel.impl.engine.DefaultReactiveExecutor.scheduleMain(DefaultReactiveExecutor.java:59)
+	at org.apache.camel.processor.Pipeline.process(Pipeline.java:165)
+	at org.apache.camel.impl.engine.CamelInternalProcessor.process(CamelInternalProcessor.java:392)
+	at org.apache.camel.component.file.GenericFileConsumer.processExchange(GenericFileConsumer.java:492)
+	at org.apache.camel.component.file.GenericFileConsumer.processBatch(GenericFileConsumer.java:245)
+	at org.apache.camel.component.file.GenericFileConsumer.poll(GenericFileConsumer.java:206)
+	at org.apache.camel.support.ScheduledPollConsumer.doRun(ScheduledPollConsumer.java:202)
+	at org.apache.camel.support.ScheduledPollConsumer.run(ScheduledPollConsumer.java:116)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305)
+	at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+	Suppressed: com.example.camel.TechnicalException: Database connection failed
+		... 18 more
+		Suppressed: com.example.camel.TechnicalException: Database connection failed
+			... 18 more
+			Suppressed: com.example.camel.TechnicalException: Database connection failed
+				at com.example.camel.ErrorSimulatorProcessor.process(ErrorSimulatorProcessor.java:25)
+				at org.apache.camel.support.processor.DelegateSyncProcessor.process(DelegateSyncProcessor.java:65)
+				at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.doRun(RedeliveryErrorHandler.java:818)
+				at org.apache.camel.processor.errorhandler.RedeliveryErrorHandler$RedeliveryTask.run(RedeliveryErrorHandler.java:726)
+				... 15 more
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Processing file: retry-success-test.txt
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 0): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating temporary failure (redelivery 0): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000F on ExchangeId: 3C3DEDE8D76C167-000000000000000F). On delivery attempt: 0 caught: com.example.camel.TechnicalException: Temporary service unavailable
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 1): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] ERROR com.example.camel.ErrorSimulatorProcessor - Simulating temporary failure (redelivery 1): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] WARN org.apache.camel.processor.errorhandler.DeadLetterChannel - Failed delivery for (MessageId: 3C3DEDE8D76C167-000000000000000F on ExchangeId: 3C3DEDE8D76C167-000000000000000F). On delivery attempt: 1 caught: com.example.camel.TechnicalException: Temporary service unavailable
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext - Apache Camel 3.20.2 (camel-1) is shutting down (timeout:45s)
+[Camel (camel-1) thread #3 - ShutdownTask] INFO org.apache.camel.impl.engine.DefaultShutdownStrategy - Waiting as there are still 2 inflight and pending exchanges to complete, timeout in 45 seconds. Inflights per route: [dlq-main-route = 2]
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing message (redelivery 2): This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Processing succeeded after 2 redeliveries: This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO com.example.camel.ErrorSimulatorProcessor - Successfully processed message: This message contains retry-success keyword
+
+[Camel (camel-1) thread #1 - file://input] INFO dlq-main-route - Successfully processed: retry-success-test.txt
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext - Routes stopped (stopped:3)
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext -     Stopped business-error-handler (direct://businessErrorQueue)
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext -     Stopped dead-letter-handler (direct://deadLetterQueue)
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext -     Stopped dlq-main-route (file://input)
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.impl.engine.AbstractCamelContext - Apache Camel 3.20.2 (camel-1) shutdown in 1s22ms (uptime:27s JVM-uptime:30s)
+[com.example.camel.ErrorHandlingApplication.main()] INFO org.apache.camel.main.MainSupport - Apache Camel (Main) 3.20.2 shutdown

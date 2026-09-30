@@ -1,0 +1,9 @@
+=== BUSINESS ERROR MESSAGE ===
+Timestamp: 2026-09-30 02:29:28
+Original File: business-error-test.txt
+Error Type: BUSINESS_EXCEPTION
+Error Message: Business rule violation: invalid customer data
+Original Message: This message contains business-error keyword
+
+Action Required: Manual review and correction needed
+=== END BUSINESS ERROR MESSAGE ===

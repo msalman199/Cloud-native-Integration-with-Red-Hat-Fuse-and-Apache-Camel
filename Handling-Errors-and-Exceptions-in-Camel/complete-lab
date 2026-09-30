@@ -1,0 +1,545 @@
+Lab 7: Handling Errors and Exceptions in Camel
+Objectives
+By the end of this lab, you will be able to:
+
+Implement comprehensive error handling mechanisms in Apache Camel routes
+Configure retry policies for transient failures
+Set up and configure Dead Letter Channels (DLQ) for failed messages
+Test various error scenarios to validate error recovery behavior
+Interpret Camel logs and output files to confirm correct error recovery behavior
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Apache Camel concepts and routing
+Familiarity with Java programming and Maven
+Understanding of exception handling in Java
+Basic Linux command line operations
+Required Software
+This lab assumes a Linux-based practice environment (a personal VM, container, or Al Nafi cloud machine) with the following installed:
+
+java -version
+mvn -version
+If Java 11+ and Maven 3.8+ are not present, install them with your distribution's package manager, for example:
+
+sudo apt-get update
+sudo apt-get install -y openjdk-11-jdk maven
+All other dependencies (Apache Camel 3.20.x, SLF4J) are declared in the Maven pom.xml created in Task 1 and will be downloaded automatically by Maven.
+
+Task 1: Implement Error Handling and Retries in Camel Routes
+Subtask 1.1: Create the Base Project Structure
+Create the project directory and navigate to it:
+mkdir -p camel-error-handling-lab
+cd camel-error-handling-lab
+Create the Maven project structure:
+mkdir -p src/main/java/com/example/camel
+mkdir -p src/main/resources
+mkdir -p src/test/java/com/example/camel
+Create the pom.xml file:
+nano pom.xml
+Add the following content:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>camel-error-handling</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <camel.version>3.20.2</camel.version>
+        <slf4j.version>1.7.36</slf4j.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-main</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-file</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-timer</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-test-junit5</artifactId>
+            <version>${camel.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Subtask 1.2: Create Custom Exception Classes
+Create a custom business exception (non-recoverable, no retries):
+nano src/main/java/com/example/camel/BusinessException.java
+package com.example.camel;
+
+public class BusinessException extends RuntimeException {
+    public BusinessException(String message) {
+        super(message);
+    }
+
+    public BusinessException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+Create a custom technical exception (recoverable, retried):
+nano src/main/java/com/example/camel/TechnicalException.java
+package com.example.camel;
+
+public class TechnicalException extends RuntimeException {
+    public TechnicalException(String message) {
+        super(message);
+    }
+
+    public TechnicalException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+Subtask 1.3: Create the Error Simulation Processor
+nano src/main/java/com/example/camel/ErrorSimulatorProcessor.java
+package com.example.camel;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class ErrorSimulatorProcessor implements Processor {
+    private static final Logger logger = LoggerFactory.getLogger(ErrorSimulatorProcessor.class);
+
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        String body = exchange.getIn().getBody(String.class);
+        int redeliveryCount = exchange.getIn().getHeader(Exchange.REDELIVERY_COUNTER, 0, Integer.class);
+
+        logger.info("Processing message (redelivery {}): {}", redeliveryCount, body);
+
+        if (body.contains("business-error")) {
+            logger.error("Simulating business exception for message: {}", body);
+            throw new BusinessException("Business rule violation: invalid customer data");
+        }
+
+        if (body.contains("technical-error")) {
+            logger.error("Simulating technical exception (redelivery {}): {}", redeliveryCount, body);
+            throw new TechnicalException("Database connection failed");
+        }
+
+        if (body.contains("retry-success")) {
+            // Fails on the first two attempts (initial + 1 redelivery),
+            // succeeds once CamelRedeliveryCounter reaches 2.
+            if (redeliveryCount < 2) {
+                logger.error("Simulating temporary failure (redelivery {}): {}", redeliveryCount, body);
+                throw new TechnicalException("Temporary service unavailable");
+            }
+            logger.info("Processing succeeded after {} redeliveries: {}", redeliveryCount, body);
+        }
+
+        logger.info("Successfully processed message: {}", body);
+        exchange.getIn().setBody("Processed: " + body);
+    }
+}
+Subtask 1.4: Create the Dead Letter Channel Route
+Instead of a generic error-handling-only route, we build directly toward the Dead Letter Channel pattern used for the rest of the lab, keeping the project small and focused.
+
+nano src/main/java/com/example/camel/DeadLetterChannelRoute.java
+package com.example.camel;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.LoggingLevel;
+import org.apache.camel.Processor;
+import org.apache.camel.builder.RouteBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class DeadLetterChannelRoute extends RouteBuilder {
+    private static final Logger logger = LoggerFactory.getLogger(DeadLetterChannelRoute.class);
+
+    @Override
+    public void configure() throws Exception {
+
+        // Dead Letter Channel: after retries are exhausted, failed exchanges
+        // are routed to direct:deadLetterQueue instead of being lost.
+        errorHandler(deadLetterChannel("direct:deadLetterQueue")
+            .maximumRedeliveries(3)
+            .redeliveryDelay(1000)
+            .backOffMultiplier(2)
+            .maximumRedeliveryDelay(8000)
+            .retryAttemptedLogLevel(LoggingLevel.WARN)
+            .retriesExhaustedLogLevel(LoggingLevel.ERROR)
+            .logRetryAttempted(true)
+            .logExhausted(true)
+            .logHandled(true));
+
+        // Business exceptions are not transient: never retry, route directly
+        // to a dedicated business-error queue for manual review.
+        onException(BusinessException.class)
+            .handled(true)
+            .maximumRedeliveries(0)
+            .log(LoggingLevel.ERROR, "Business exception - routing to business error queue: ${exception.message}")
+            .to("direct:businessErrorQueue");
+
+        // Main processing route
+        from("file:input?noop=true&delay=2000&idempotent=false")
+            .routeId("dlq-main-route")
+            .log("Processing file: ${header.CamelFileName}")
+            .setHeader("OriginalFileName", header("CamelFileName"))
+            .setHeader("ProcessingStartTime", simple("${date:now:yyyy-MM-dd HH:mm:ss}"))
+            .process(new ErrorSimulatorProcessor())
+            .log("Successfully processed: ${header.CamelFileName}")
+            .to("file:output/success?fileName=success-${header.OriginalFileName}");
+
+        // Dead Letter Queue handler: reached only after retries are exhausted
+        from("direct:deadLetterQueue")
+            .routeId("dead-letter-handler")
+            .log(LoggingLevel.ERROR,
+                 "Message sent to Dead Letter Queue after ${header.CamelRedeliveryCounter} redeliveries")
+            .setHeader("ErrorTimestamp", simple("${date:now:yyyy-MM-dd HH:mm:ss}"))
+            .setHeader("ErrorReason", simple("${exception.message}"))
+            .setHeader("RetryCount", header("CamelRedeliveryCounter"))
+            .process(new DeadLetterProcessor())
+            .to("file:output/dead-letter?fileName=DLQ-${header.OriginalFileName}-${date:now:yyyyMMdd-HHmmssSSS}.txt")
+            .log("Dead letter message saved to file system");
+
+        // Business error queue handler
+        from("direct:businessErrorQueue")
+            .routeId("business-error-handler")
+            .setHeader("ErrorTimestamp", simple("${date:now:yyyy-MM-dd HH:mm:ss}"))
+            .process(new BusinessErrorProcessor())
+            .to("file:output/business-errors?fileName=BIZ-ERROR-${header.OriginalFileName}-${date:now:yyyyMMdd-HHmmssSSS}.txt")
+            .log("Business error logged and saved");
+    }
+
+    // Formats and logs messages that exhausted all retries
+    public static class DeadLetterProcessor implements Processor {
+        private static final Logger logger = LoggerFactory.getLogger(DeadLetterProcessor.class);
+
+        @Override
+        public void process(Exchange exchange) throws Exception {
+            String originalBody = exchange.getIn().getBody(String.class);
+            String fileName = exchange.getIn().getHeader("OriginalFileName", String.class);
+            String errorReason = exchange.getIn().getHeader("ErrorReason", String.class);
+            Integer retryCount = exchange.getIn().getHeader("RetryCount", Integer.class);
+            String errorTimestamp = exchange.getIn().getHeader("ErrorTimestamp", String.class);
+
+            StringBuilder dlqMessage = new StringBuilder();
+            dlqMessage.append("=== DEAD LETTER QUEUE MESSAGE ===\n");
+            dlqMessage.append("Timestamp: ").append(errorTimestamp).append("\n");
+            dlqMessage.append("Original File: ").append(fileName).append("\n");
+            dlqMessage.append("Retry Count: ").append(retryCount).append("\n");
+            dlqMessage.append("Error Reason: ").append(errorReason).append("\n");
+            dlqMessage.append("Original Message: ").append(originalBody).append("\n");
+            dlqMessage.append("=== END DLQ MESSAGE ===\n");
+
+            exchange.getIn().setBody(dlqMessage.toString());
+
+            logger.error("Message moved to DLQ - File: {}, Retries: {}, Error: {}",
+                        fileName, retryCount, errorReason);
+        }
+    }
+
+    // Formats and logs business rule violations
+    public static class BusinessErrorProcessor implements Processor {
+        private static final Logger logger = LoggerFactory.getLogger(BusinessErrorProcessor.class);
+
+        @Override
+        public void process(Exchange exchange) throws Exception {
+            String originalBody = exchange.getIn().getBody(String.class);
+            String fileName = exchange.getIn().getHeader("OriginalFileName", String.class);
+            String errorTimestamp = exchange.getIn().getHeader("ErrorTimestamp", String.class);
+            Exception exception = exchange.getProperty(Exchange.EXCEPTION_CAUGHT, Exception.class);
+            String errorMessageText = (exception != null) ? exception.getMessage() : "unknown";
+
+            StringBuilder errorMessage = new StringBuilder();
+            errorMessage.append("=== BUSINESS ERROR MESSAGE ===\n");
+            errorMessage.append("Timestamp: ").append(errorTimestamp).append("\n");
+            errorMessage.append("Original File: ").append(fileName).append("\n");
+            errorMessage.append("Error Type: BUSINESS_EXCEPTION\n");
+            errorMessage.append("Error Message: ").append(errorMessageText).append("\n");
+            errorMessage.append("Original Message: ").append(originalBody).append("\n");
+            errorMessage.append("Action Required: Manual review and correction needed\n");
+            errorMessage.append("=== END BUSINESS ERROR MESSAGE ===\n");
+
+            exchange.getIn().setBody(errorMessage.toString());
+
+            logger.warn("Business error logged - File: {}, Error: {}", fileName, errorMessageText);
+        }
+    }
+}
+Subtask 1.5: Create the Application Main Class
+nano src/main/java/com/example/camel/ErrorHandlingApplication.java
+package com.example.camel;
+
+import org.apache.camel.main.Main;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class ErrorHandlingApplication {
+    private static final Logger logger = LoggerFactory.getLogger(ErrorHandlingApplication.class);
+
+    public static void main(String[] args) throws Exception {
+        Main main = new Main();
+
+        main.configure().addRoutesBuilder(new DeadLetterChannelRoute());
+
+        logger.info("Starting Camel Error Handling Application...");
+        logger.info("Monitoring directories:");
+        logger.info("  - Input: input/");
+        logger.info("  - Success: output/success/");
+        logger.info("  - Business errors: output/business-errors/");
+        logger.info("  - Dead letter: output/dead-letter/");
+
+        main.run(args);
+    }
+}
+Deliverable for Task 1: Compile the project to confirm everything is wired correctly.
+
+mvn clean compile
+Expected result: The build ends with BUILD SUCCESS. No compilation errors should be reported for any of the four Java classes created above.
+
+Task 2: Prepare Test Data and Validate with Unit Tests
+Subtask 2.1: Create Input and Output Directories
+mkdir -p input
+mkdir -p output/success
+mkdir -p output/business-errors
+mkdir -p output/dead-letter
+Subtask 2.2: Create Test Data Files
+echo "This is a normal message for processing" > input/normal-message.txt
+echo "This message contains business-error keyword" > input/business-error-test.txt
+echo "This message contains technical-error keyword" > input/technical-error-test.txt
+echo "This message contains retry-success keyword" > input/retry-success-test.txt
+Subtask 2.3: Create Unit Tests
+Unit tests validate the routing logic in isolation, without waiting on file polling delays.
+
+nano src/test/java/com/example/camel/ErrorHandlingTest.java
+package com.example.camel;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.LoggingLevel;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.mock.MockEndpoint;
+import org.apache.camel.test.junit5.CamelTestSupport;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+public class ErrorHandlingTest extends CamelTestSupport {
+
+    @Override
+    protected RouteBuilder createRouteBuilder() throws Exception {
+        return new RouteBuilder() {
+            @Override
+            public void configure() throws Exception {
+
+                errorHandler(deadLetterChannel("mock:deadLetter")
+                    .maximumRedeliveries(2)
+                    .redeliveryDelay(50)
+                    .logRetryAttempted(true)
+                    .logExhausted(true));
+
+                onException(BusinessException.class)
+                    .handled(true)
+                    .maximumRedeliveries(0)
+                    .log(LoggingLevel.ERROR, "Business exception: ${exception.message}")
+                    .to("mock:businessError");
+
+                from("direct:start")
+                    .process(new ErrorSimulatorProcessor())
+                    .to("mock:success");
+            }
+        };
+    }
+
+    @Test
+    public void testNormalProcessing() throws Exception {
+        MockEndpoint mockSuccess = getMockEndpoint("mock:success");
+        MockEndpoint mockDeadLetter = getMockEndpoint("mock:deadLetter");
+        MockEndpoint mockBusinessError = getMockEndpoint("mock:businessError");
+
+        mockSuccess.expectedMessageCount(1);
+        mockDeadLetter.expectedMessageCount(0);
+        mockBusinessError.expectedMessageCount(0);
+
+        template.sendBody("direct:start", "Normal message");
+
+        assertMockEndpointsSatisfied();
+    }
+
+    @Test
+    public void testBusinessExceptionSkipsRetries() throws Exception {
+        MockEndpoint mockSuccess = getMockEndpoint("mock:success");
+        MockEndpoint mockDeadLetter = getMockEndpoint("mock:deadLetter");
+        MockEndpoint mockBusinessError = getMockEndpoint("mock:businessError");
+
+        mockSuccess.expectedMessageCount(0);
+        mockDeadLetter.expectedMessageCount(0);
+        mockBusinessError.expectedMessageCount(1);
+
+        template.sendBody("direct:start", "Message with business-error");
+
+        assertMockEndpointsSatisfied();
+    }
+
+    @Test
+    public void testTechnicalExceptionExhaustsRetriesToDlq() throws Exception {
+        MockEndpoint mockSuccess = getMockEndpoint("mock:success");
+        MockEndpoint mockDeadLetter = getMockEndpoint("mock:deadLetter");
+
+        mockSuccess.expectedMessageCount(0);
+        mockDeadLetter.expectedMessageCount(1);
+
+        template.sendBody("direct:start", "Message with technical-error");
+
+        assertMockEndpointsSatisfied();
+
+        Exchange deadLetterExchange = mockDeadLetter.getReceivedExchanges().get(0);
+        Integer redeliveryCounter = deadLetterExchange.getIn().getHeader(Exchange.REDELIVERY_COUNTER, Integer.class);
+        assertNotNull(redeliveryCounter, "Expected CamelRedeliveryCounter header to be set");
+        assertTrue(redeliveryCounter >= 2, "Expected at least 2 redeliveries before DLQ");
+    }
+
+    @Test
+    public void testRetrySucceedsBeforeExhaustion() throws Exception {
+        MockEndpoint mockSuccess = getMockEndpoint("mock:success");
+        MockEndpoint mockDeadLetter = getMockEndpoint("mock:deadLetter");
+
+        mockSuccess.expectedMessageCount(1);
+        mockDeadLetter.expectedMessageCount(0);
+
+        template.sendBody("direct:start", "Message with retry-success");
+
+        assertMockEndpointsSatisfied();
+    }
+}
+Deliverable for Task 2: Run the unit test suite.
+
+mvn test
+Expected result: Output shows Tests run: 4, Failures: 0, Errors: 0 and BUILD SUCCESS. This confirms, in isolation, that normal messages succeed, business errors skip retries, technical errors retry until exhaustion and land in the DLQ, and transient failures recover before exhaustion.
+
+Task 3: Run the Application and Analyze Dead Letter Behavior
+Subtask 3.1: Start the Application
+Run the application in the foreground so you can observe log output directly. This will process the four files placed in input/ during Task 2.
+
+timeout 30 mvn exec:java -Dexec.mainClass="com.example.camel.ErrorHandlingApplication"
+The timeout 30 wrapper stops the process automatically after 30 seconds, which is enough time for the file poller (delay=2000) to pick up all four files and for retries (redelivery delay up to 8 seconds, 3 retries) to complete.
+
+Deliverable: The command runs to completion without a Java stack trace escaping the application (Camel-caught exceptions inside routes are expected and will appear as ERROR log lines, which is correct behavior, not a crash).
+
+Subtask 3.2: Verify Successful Processing
+ls -la output/success/
+cat output/success/success-normal-message.txt
+Expected result: One file named success-normal-message.txt exists and contains the text Processed: This is a normal message for processing. The retry-success-test.txt file should also appear here as success-retry-success-test.txt, because it succeeds once the redelivery counter reaches 2.
+
+Subtask 3.3: Verify Business Error Handling
+ls -la output/business-errors/
+cat output/business-errors/BIZ-ERROR-business-error-test.txt-*.txt
+Expected result: One file matching BIZ-ERROR-business-error-test.txt-<timestamp>.txt exists and contains an === BUSINESS ERROR MESSAGE === block with Error Type: BUSINESS_EXCEPTION and the original message text. No corresponding file should appear in output/success/ or output/dead-letter/, confirming business errors are never retried.
+
+Subtask 3.4: Analyze Dead Letter Queue Results
+Now examine the technical error path in detail, since it exercises the full retry-then-DLQ pipeline.
+
+Confirm the dead-letter file exists:
+echo "=== Dead Letter Queue Files ==="
+ls -la output/dead-letter/
+Expected result: One file matching DLQ-technical-error-test.txt-<timestamp>.txt.
+
+Inspect the dead-letter file contents:
+cat output/dead-letter/DLQ-technical-error-test.txt-*.txt
+Expected result: A block formatted as:
+
+=== DEAD LETTER QUEUE MESSAGE ===
+Timestamp: <yyyy-MM-dd HH:mm:ss>
+Original File: technical-error-test.txt
+Retry Count: 3
+Error Reason: Database connection failed
+Original Message: This message contains technical-error keyword
+=== END DLQ MESSAGE ===
+The Retry Count: 3 value confirms maximumRedeliveries(3) was fully exhausted before Camel routed the exchange to the Dead Letter Channel.
+
+Verify retry backoff behavior from file timestamps:
+Since only one dead-letter file is produced per input message (it is written once, after retries are exhausted), retry timing is verified from the log output rather than multiple files. Re-run the application with output captured to a log file to inspect timing:
+
+timeout 30 mvn exec:java -Dexec.mainClass="com.example.camel.ErrorHandlingApplication" > run.log 2>&1
+grep -E "Delivery attempt|redelivery" run.log
+Expected result: Multiple log lines referencing redelivery attempts for the technical error message, with increasing gaps between them consistent with redeliveryDelay(1000) and backOffMultiplier(2) (approximately 1s, then 2s, then 4s between attempts).
+
+Confirm redelivery attempts in the log:
+grep "CamelRedeliveryCounter\|Delivery attempt" run.log | head -10
+Expected result: Log entries showing the redelivery counter incrementing from 1 to 3 for technical-error-test.txt, each logged at WARN level (via retryAttemptedLogLevel(WARN)), followed by one ERROR-level line indicating retries are exhausted (via retriesExhaustedLogLevel(ERROR)).
+
+Interpret the results against the lab objectives:
+Cross-check the three outcomes observed so far against the intended behavior:
+
+Scenario	Exception Type	Retries	Final Destination
+Normal / retry-success message	none / transient	0 or up to 2	output/success/
+Business error message	BusinessException	0 (explicitly disabled)	output/business-errors/
+Technical error message	TechnicalException	3 (exhausted)	output/dead-letter/
+If all three rows match what you observed in Subtasks 3.2 through 3.4, the Dead Letter Channel, retry policy, and exception-type routing are all working as designed.
+
+Troubleshooting guidance if a scenario does not match:
+If output/dead-letter/ is empty but output/business-errors/ has an unexpected extra file, check that the filename in input/ actually contains the substring technical-error and not business-error â�� the processor matches on substring, and files created earlier in the lab could collide if reused.
+If no output files appear at all after 30 seconds, confirm the file endpoint polled the correct directory by checking run.log for a line beginning Processing file: â�� if absent, verify input/ contains files directly (not in a subdirectory) since the route uses file:input with noop=true.
+Subtask 3.5: Re-run to Confirm Idempotent Behavior
+Because the route uses noop=true, files are not deleted or moved after processing, so they will be reprocessed on the next run.
+
+rm -rf output/success/* output/business-errors/* output/dead-letter/*
+timeout 30 mvn exec:java -Dexec.mainClass="com.example.camel.ErrorHandlingApplication"
+ls output/success/ output/business-errors/ output/dead-letter/
+Deliverable for Task 3: After this re-run, all three output directories are repopulated identically to the first run, confirming the error handling behavior is deterministic and repeatable given the same input files.
+
+Expected Outcomes
+A working Maven-based Camel application that routes messages to success, business-error, or dead-letter destinations based on exception type
+A passing JUnit 5 test suite (4 tests) proving retry counts and routing decisions programmatically
+Verified log and file evidence of the retry-then-DLQ lifecycle, including redelivery counters and backoff timing
+Troubleshooting
+Symptom: mvn test fails with NoSuchMethodError or dependency resolution errors. Diagnostic hint: Run mvn -v and confirm Java 11+ is active; check ~/.m2/repository for partially downloaded Camel 3.20.2 artifacts and retry with mvn clean test -U to force dependency updates.
+Symptom: No files appear in any output/ subdirectory after running the application. Diagnostic hint: Check that input/*.txt files exist and are readable, and grep run.log (or console output) for Processing file: log lines to confirm the file consumer route actually polled the directory.
+Conclusion
+In this lab you built a complete Apache Camel error-handling pipeline: custom business and technical exceptions, a processor that deterministically simulates recoverable and non-recoverable failures, and a Dead Letter Channel route that applies distinct retry policies per exception type. You validated the routing logic with a JUnit 5 test suite and then confirmed the same behavior end to end by running the packaged application, inspecting output files, and reading redelivery counters and backoff timing directly from the logs. Through this process you practiced distinguishing recoverable errors (retried with exponential backoff before landing in a DLQ) from non-recoverable ones (routed immediately for manual review), and you gained hands-on experience troubleshooting a Camel route using both automated tests and manual log/file analysis. From here, natural next steps include integrating a real message broker (such as ActiveMQ or Kafka) in place of the file endpoints, adding metrics or alerting on DLQ volume, and exploring Camel's Circuit Breaker EIP for more advanced resilience patterns.

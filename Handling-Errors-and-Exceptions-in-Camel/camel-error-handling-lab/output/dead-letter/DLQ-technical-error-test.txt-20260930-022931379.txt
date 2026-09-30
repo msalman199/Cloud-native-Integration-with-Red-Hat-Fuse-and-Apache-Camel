@@ -1,0 +1,8 @@
+=== DEAD LETTER QUEUE MESSAGE ===
+Timestamp: 2026-09-30 02:29:31
+Original File: technical-error-test.txt
+Retry Count: null
+Error Reason: Database connection failed
+Original Message: This message contains technical-error keyword
+
+=== END DLQ MESSAGE ===
