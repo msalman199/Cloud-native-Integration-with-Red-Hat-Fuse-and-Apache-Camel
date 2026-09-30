@@ -1,0 +1,53 @@
+package com.example.camel;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.LoggingLevel;
+import org.apache.camel.Processor;
+import org.apache.camel.builder.RouteBuilder;
+
+import java.util.Map;
+
+/**
+ * Camel routes demonstrating a distributed (XA) transaction across two databases.
+ */
+public class DistributedTransactionRoutes extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        onException(Exception.class)
+            .handled(true)
+            .log(LoggingLevel.ERROR, "Transaction rolled back: ${exception.message}")
+            .setHeader("transactionResult", constant("ROLLED_BACK"));
+
+        from("direct:processOrder")
+            .routeId("processOrderRoute")
+            .transacted("required")
+            .log("Processing order for ${header.customerName}: ${header.quantity} x ${header.productName}")
+            .to("ordersSQL:INSERT INTO orders (customer_name, product_name, quantity, status) "
+                + "VALUES (:#customerName, :#productName, :#quantity, 'PROCESSING')")
+            .process(new FailureInjector())
+            .to("inventorySQL:UPDATE inventory SET available_quantity = available_quantity - :#quantity "
+                + "WHERE product_name = :#productName AND available_quantity >= :#quantity")
+            .process(exchange -> {
+                if (exchange.getIn().getHeader("transactionResult") == null) {
+                    exchange.getIn().setHeader("transactionResult", "COMMITTED");
+                }
+            })
+            .log("Transaction result: ${header.transactionResult}");
+    }
+
+    /**
+     * Throws an exception mid-route when the "simulateFailure" header is true,
+     * to demonstrate that both the orders insert and inventory update are rolled back.
+     */
+    public static class FailureInjector implements Processor {
+        @Override
+        public void process(Exchange exchange) throws Exception {
+            Boolean simulateFailure = exchange.getIn().getHeader("simulateFailure", Boolean.class);
+            if (Boolean.TRUE.equals(simulateFailure)) {
+                throw new RuntimeException("Simulated failure to trigger XA rollback");
+            }
+        }
+    }
+}

@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:camel="http://camel.apache.org/schema/spring"
+       xsi:schemaLocation="
+       http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://camel.apache.org/schema/spring
+       http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+    <!-- Atomikos Transaction Manager -->
+    <bean id="atomikosTransactionManager"
+          class="com.atomikos.icatch.jta.UserTransactionManager"
+          init-method="init" destroy-method="close">
+        <property name="forceShutdown" value="false"/>
+    </bean>
+
+    <bean id="atomikosUserTransaction"
+          class="com.atomikos.icatch.jta.UserTransactionImp">
+        <property name="transactionTimeout" value="300"/>
+    </bean>
+
+    <bean id="jtaTransactionManager"
+          class="org.springframework.transaction.jta.JtaTransactionManager">
+        <property name="transactionManager" ref="atomikosTransactionManager"/>
+        <property name="userTransaction" ref="atomikosUserTransaction"/>
+    </bean>
+
+    <!-- XA DataSource: Orders -->
+    <bean id="ordersXADataSource"
+          class="com.atomikos.jdbc.AtomikosDataSourceBean"
+          init-method="init" destroy-method="close">
+        <property name="uniqueResourceName" value="ordersDB"/>
+        <property name="xaDataSourceClassName" value="org.h2.jdbcx.JdbcDataSource"/>
+        <property name="xaProperties">
+            <props>
+                <prop key="URL">jdbc:h2:mem:ordersdb;DB_CLOSE_DELAY=-1</prop>
+                <prop key="user">sa</prop>
+                <prop key="password"></prop>
+            </props>
+        </property>
+        <property name="poolSize" value="5"/>
+        <property name="testQuery" value="SELECT 1"/>
+    </bean>
+
+    <!-- XA DataSource: Inventory -->
+    <bean id="inventoryXADataSource"
+          class="com.atomikos.jdbc.AtomikosDataSourceBean"
+          init-method="init" destroy-method="close">
+        <property name="uniqueResourceName" value="inventoryDB"/>
+        <property name="xaDataSourceClassName" value="org.h2.jdbcx.JdbcDataSource"/>
+        <property name="xaProperties">
+            <props>
+                <prop key="URL">jdbc:h2:mem:inventorydb;DB_CLOSE_DELAY=-1</prop>
+                <prop key="user">sa</prop>
+                <prop key="password"></prop>
+            </props>
+        </property>
+        <property name="poolSize" value="5"/>
+        <property name="testQuery" value="SELECT 1"/>
+    </bean>
+
+    <!-- Database Initializer -->
+    <bean id="databaseInitializer"
+          class="com.example.camel.DatabaseInitializer"
+          init-method="initialize">
+        <property name="ordersDataSource" ref="ordersXADataSource"/>
+        <property name="inventoryDataSource" ref="inventoryXADataSource"/>
+    </bean>
+
+    <!-- Spring PlatformTransactionManager bean used by Camel's "PROPAGATION_REQUIRED" policy -->
+    <bean id="required"
+          class="org.apache.camel.spring.spi.SpringTransactionPolicy">
+        <property name="transactionManager" ref="jtaTransactionManager"/>
+        <property name="propagationBehaviorName" value="PROPAGATION_REQUIRED"/>
+    </bean>
+
+    <!-- Camel SQL components, each bound to its own XA data source -->
+    <bean id="ordersSQL" class="org.apache.camel.component.sql.SqlComponent">
+        <property name="dataSource" ref="ordersXADataSource"/>
+    </bean>
+
+    <bean id="inventorySQL" class="org.apache.camel.component.sql.SqlComponent">
+        <property name="dataSource" ref="inventoryXADataSource"/>
+    </bean>
+
+    <bean id="distributedTransactionRoutes"
+          class="com.example.camel.DistributedTransactionRoutes"/>
+
+    <camelContext id="camelContext" xmlns="http://camel.apache.org/schema/spring">
+        <routeBuilder ref="distributedTransactionRoutes"/>
+    </camelContext>
+
+</beans>
