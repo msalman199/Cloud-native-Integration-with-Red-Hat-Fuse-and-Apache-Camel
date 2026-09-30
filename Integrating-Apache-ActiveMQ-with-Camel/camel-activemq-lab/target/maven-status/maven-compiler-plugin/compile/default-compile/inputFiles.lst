@@ -1,0 +1,5 @@
+/home/centos/camel-activemq-lab/src/main/java/com/alnafi/camel/activemq/CamelActiveMQApplication.java
+/home/centos/camel-activemq-lab/src/main/java/com/alnafi/camel/activemq/OrderProcessor.java
+/home/centos/camel-activemq-lab/src/main/java/com/alnafi/camel/activemq/OrderGenerator.java
+/home/centos/camel-activemq-lab/src/main/java/com/alnafi/camel/activemq/ErrorHandlingRoute.java
+/home/centos/camel-activemq-lab/src/main/java/com/alnafi/camel/activemq/OrderProcessingRoute.java

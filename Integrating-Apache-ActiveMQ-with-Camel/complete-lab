@@ -1,0 +1,876 @@
+Lab 8: Integrating Apache ActiveMQ with Camel
+Objectives
+By the end of this lab, you will be able to:
+
+Set up and configure an Apache ActiveMQ message broker
+Create Camel routes that integrate with ActiveMQ for message production and consumption
+Implement reliable message-based communication patterns using dead letter channels and redelivery
+Test and validate messaging flows through unit tests, integration tests, and load tests
+Configure and verify message persistence and reliability features
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Java programming concepts
+Familiarity with Maven build tool
+Knowledge of XML configuration files
+Understanding of messaging concepts (queues, topics, producers, consumers)
+Basic command-line interface skills
+Completed previous Camel labs or equivalent experience
+Required Knowledge Areas
+Java Development: Basic syntax, classes, and methods
+Maven: Project structure and dependency management
+Messaging Concepts: Understanding of asynchronous communication
+XML: Basic structure and syntax
+Lab Environment Setup
+Good News! Al Nafi provides ready-to-use Linux-based cloud machines for this lab. Simply click Start Lab and you'll have access to a pre-configured environment with all necessary tools installed. No need to build your own VM or install software locally.
+
+Pre-installed Tools in Your Cloud Machine
+OpenJDK 11
+Apache Maven 3.8+
+Apache ActiveMQ 5.17+
+Apache Camel 3.20+
+Text editors (nano, vim)
+curl and wget utilities
+If any of these are missing in your environment, install them with:
+
+sudo apt update
+sudo apt install -y openjdk-11-jdk maven curl wget
+Task 1: Set up an ActiveMQ Broker
+Subtask 1.1: Verify ActiveMQ Installation
+First, verify that ActiveMQ is properly installed and accessible in your cloud environment.
+
+Check ActiveMQ Installation
+# Navigate to ActiveMQ directory
+cd /opt/activemq
+
+# Check ActiveMQ version
+./bin/activemq --version
+Verify Java Environment
+# Check Java version
+java -version
+
+# Verify JAVA_HOME is set
+echo $JAVA_HOME
+Subtask 1.2: Start ActiveMQ Broker
+Start ActiveMQ in Console Mode
+# Start ActiveMQ broker
+cd /opt/activemq
+./bin/activemq console
+Note: The console mode allows you to see real-time logs, which is helpful for learning and debugging. Leave this terminal open and running for the rest of the lab.
+
+Verify ActiveMQ is Running
+Open a new terminal window and run:
+
+# Check if ActiveMQ is listening on default ports
+netstat -tlnp | grep 61616  # JMS port
+netstat -tlnp | grep 8161   # Web console port
+Access ActiveMQ Web Console
+Open a web browser in your cloud machine
+Navigate to: http://localhost:8161/admin
+Default credentials:
+Username: admin
+Password: admin
+Deliverable: A screenshot or terminal capture showing both ports (61616 and 8161) listed as LISTEN in the netstat output, and successful login to the web console.
+
+Subtask 1.3: Configure ActiveMQ for Development
+Create a Custom Configuration Directory
+# Create workspace for our lab
+mkdir -p ~/camel-activemq-lab
+cd ~/camel-activemq-lab
+
+# Create configuration directory
+mkdir config
+Create Custom ActiveMQ Configuration
+Create a file named config/activemq.xml:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans 
+       http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://activemq.apache.org/schema/core 
+       http://activemq.apache.org/schema/core/activemq-core.xsd">
+
+    <bean class="org.springframework.beans.factory.config.PropertyPlaceholderConfigurer">
+        <property name="locations">
+            <value>file:${activemq.conf}/credentials.properties</value>
+        </property>
+    </bean>
+
+    <broker xmlns="http://activemq.apache.org/schema/core" 
+            brokerName="lab-broker" 
+            dataDirectory="${activemq.data}"
+            persistent="true"
+            useJmx="true">
+
+        <destinationPolicy>
+            <policyMap>
+                <policyEntries>
+                    <policyEntry topic=">" >
+                        <pendingMessageLimitStrategy>
+                            <constantPendingMessageLimitStrategy limit="1000"/>
+                        </pendingMessageLimitStrategy>
+                    </policyEntry>
+                </policyEntries>
+            </policyMap>
+        </destinationPolicy>
+
+        <managementContext>
+            <managementContext createConnector="false"/>
+        </managementContext>
+
+        <persistenceAdapter>
+            <kahaDB directory="${activemq.data}/kahadb"/>
+        </persistenceAdapter>
+
+        <systemUsage>
+            <systemUsage>
+                <memoryUsage>
+                    <memoryUsage percentOfJvmHeap="70" />
+                </memoryUsage>
+                <storeUsage>
+                    <storeUsage limit="100 gb"/>
+                </storeUsage>
+                <tempUsage>
+                    <tempUsage limit="50 gb"/>
+                </tempUsage>
+            </systemUsage>
+        </systemUsage>
+
+        <transportConnectors>
+            <transportConnector name="openwire" uri="tcp://0.0.0.0:61616?maximumConnections=1000&amp;wireFormat.maxFrameSize=104857600"/>
+            <transportConnector name="amqp" uri="amqp://0.0.0.0:5672?maximumConnections=1000&amp;wireFormat.maxFrameSize=104857600"/>
+            <transportConnector name="stomp" uri="stomp://0.0.0.0:61613?maximumConnections=1000&amp;wireFormat.maxFrameSize=104857600"/>
+            <transportConnector name="mqtt" uri="mqtt://0.0.0.0:1883?maximumConnections=1000&amp;wireFormat.maxFrameSize=104857600"/>
+            <transportConnector name="ws" uri="ws://0.0.0.0:61614?maximumConnections=1000&amp;wireFormat.maxFrameSize=104857600"/>
+        </transportConnectors>
+
+        <shutdownHooks>
+            <bean xmlns="http://www.springframework.org/schema/beans" 
+                  class="org.apache.activemq.hooks.SpringContextHook" />
+        </shutdownHooks>
+
+    </broker>
+
+    <import resource="jetty.xml"/>
+
+</beans>
+Deliverable: The file ~/camel-activemq-lab/config/activemq.xml exists and is well-formed XML (you can verify with xmllint --noout config/activemq.xml, which should produce no output on success).
+
+Task 2: Create a Camel Route to Produce and Consume Messages via ActiveMQ
+Subtask 2.1: Set up Maven Project Structure
+Create Maven Project
+cd ~/camel-activemq-lab
+
+# Create Maven project structure
+mkdir -p src/main/java/com/alnafi/camel/activemq
+mkdir -p src/main/resources
+mkdir -p src/test/java/com/alnafi/camel/activemq
+Create pom.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    
+    <modelVersion>4.0.0</modelVersion>
+    
+    <groupId>com.alnafi.camel</groupId>
+    <artifactId>camel-activemq-integration</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    
+    <name>Camel ActiveMQ Integration Lab</name>
+    <description>Lab 8: Integrating Apache ActiveMQ with Camel</description>
+    
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        
+        <camel.version>3.20.2</camel.version>
+        <activemq.version>5.17.3</activemq.version>
+        <slf4j.version>1.7.36</slf4j.version>
+        <logback.version>1.2.12</logback.version>
+        <junit.version>5.9.2</junit.version>
+    </properties>
+    
+    <dependencies>
+        <!-- Camel Core -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Camel Main for standalone applications -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-main</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Camel JMS component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jms</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- ActiveMQ Client -->
+        <dependency>
+            <groupId>org.apache.activemq</groupId>
+            <artifactId>activemq-client</artifactId>
+            <version>${activemq.version}</version>
+        </dependency>
+        
+        <!-- ActiveMQ Pool for connection pooling -->
+        <dependency>
+            <groupId>org.apache.activemq</groupId>
+            <artifactId>activemq-pool</artifactId>
+            <version>${activemq.version}</version>
+        </dependency>
+        
+        <!-- Camel Bean component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-bean</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Camel Timer component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-timer</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Camel Direct component (used in unit tests) -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-direct</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
+        </dependency>
+        
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-test-junit5</artifactId>
+            <version>${camel.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <mainClass>com.alnafi.camel.activemq.CamelActiveMQApplication</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Deliverable: Running mvn -q validate from ~/camel-activemq-lab completes with no errors, confirming the POM is syntactically valid and dependencies resolve.
+
+Subtask 2.2: Create Message Processing Components
+Create Order Processing Bean
+Create file src/main/java/com/alnafi/camel/activemq/OrderProcessor.java:
+
+package com.alnafi.camel.activemq;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+/**
+ * Order processor that handles incoming order messages
+ */
+public class OrderProcessor implements Processor {
+
+    private static final Logger logger = LoggerFactory.getLogger(OrderProcessor.class);
+
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        String orderMessage = exchange.getIn().getBody(String.class);
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+
+        logger.info("Processing order at {}: {}", timestamp, orderMessage);
+
+        String processedOrder = processOrder(orderMessage, timestamp);
+
+        exchange.getIn().setBody(processedOrder);
+        exchange.getIn().setHeader("ProcessedAt", timestamp);
+        exchange.getIn().setHeader("OrderStatus", "PROCESSED");
+
+        logger.info("Order processed successfully: {}", processedOrder);
+    }
+
+    private String processOrder(String orderMessage, String timestamp) {
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        return String.format("PROCESSED_ORDER[%s] - %s", timestamp, orderMessage);
+    }
+}
+Create Order Generator Bean
+Create file src/main/java/com/alnafi/camel/activemq/OrderGenerator.java:
+
+package com.alnafi.camel.activemq;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * Generates sample order messages for testing
+ */
+public class OrderGenerator {
+
+    private static final Logger logger = LoggerFactory.getLogger(OrderGenerator.class);
+    private static final AtomicInteger orderCounter = new AtomicInteger(1);
+    private static final Random random = new Random();
+
+    private static final String[] PRODUCTS = {
+        "Laptop", "Smartphone", "Tablet", "Headphones", "Camera",
+        "Watch", "Keyboard", "Mouse", "Monitor", "Printer"
+    };
+
+    private static final String[] CUSTOMERS = {
+        "John Doe", "Jane Smith", "Bob Johnson", "Alice Brown", "Charlie Wilson",
+        "Diana Davis", "Eve Miller", "Frank Garcia", "Grace Lee", "Henry Taylor"
+    };
+
+    public String generateOrder() {
+        int orderId = orderCounter.getAndIncrement();
+        String product = PRODUCTS[random.nextInt(PRODUCTS.length)];
+        String customer = CUSTOMERS[random.nextInt(CUSTOMERS.length)];
+        int quantity = random.nextInt(5) + 1;
+        double price = Math.round((random.nextDouble() * 1000 + 50) * 100.0) / 100.0;
+
+        String order = String.format(
+            "ORDER_ID:%d|CUSTOMER:%s|PRODUCT:%s|QUANTITY:%d|PRICE:$%.2f",
+            orderId, customer, product, quantity, price
+        );
+
+        logger.info("Generated new order: {}", order);
+        return order;
+    }
+}
+Deliverable: Both files compile without errors. Verify with mvn -q compile from the project root; the command should finish silently with exit code 0.
+
+Subtask 2.3: Create Camel Routes
+Create Main Route Builder
+Create file src/main/java/com/alnafi/camel/activemq/OrderProcessingRoute.java:
+
+package com.alnafi.camel.activemq;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.jms.JmsComponent;
+import org.apache.activemq.ActiveMQConnectionFactory;
+import org.apache.activemq.pool.PooledConnectionFactory;
+
+/**
+ * Camel route that integrates with ActiveMQ for order processing
+ */
+public class OrderProcessingRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        configureActiveMQConnection();
+
+        // Route 1: Order Generation Route
+        from("timer:orderGenerator?period=5000")
+            .routeId("order-generator-route")
+            .log("Starting order generation...")
+            .bean(OrderGenerator.class, "generateOrder")
+            .log("Generated order: ${body}")
+            .to("jms:queue:orders.incoming")
+            .log("Order sent to ActiveMQ queue: orders.incoming");
+
+        // Route 2: Order Processing Route
+        from("jms:queue:orders.incoming")
+            .routeId("order-processing-route")
+            .log("Received order from queue: ${body}")
+            .process(new OrderProcessor())
+            .log("Order processed: ${body}")
+            .to("jms:queue:orders.processed")
+            .log("Processed order sent to queue: orders.processed");
+
+        // Route 3: Order Fulfillment Route
+        from("jms:queue:orders.processed")
+            .routeId("order-fulfillment-route")
+            .log("Fulfilling processed order: ${body}")
+            .delay(2000)
+            .transform(simple("FULFILLED: ${body}"))
+            .log("Order fulfilled: ${body}")
+            .to("jms:queue:orders.fulfilled");
+
+        // Route 4: Order Notification Route
+        from("jms:queue:orders.fulfilled")
+            .routeId("order-notification-route")
+            .log("Sending notification for fulfilled order: ${body}")
+            .transform(simple("NOTIFICATION: Order completed - ${body}"))
+            .log("Notification sent: ${body}");
+
+        // Route 5: Dead Letter Queue Handler
+        from("jms:queue:orders.dlq")
+            .routeId("dead-letter-handler-route")
+            .log("Processing failed order from DLQ: ${body}")
+            .log("Failed order headers: ${headers}")
+            .transform(simple("FAILED_ORDER_LOGGED: ${body}"));
+    }
+
+    private void configureActiveMQConnection() {
+        ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory();
+        connectionFactory.setBrokerURL("tcp://localhost:61616");
+        connectionFactory.setUserName("admin");
+        connectionFactory.setPassword("admin");
+
+        PooledConnectionFactory pooledConnectionFactory = new PooledConnectionFactory();
+        pooledConnectionFactory.setConnectionFactory(connectionFactory);
+        pooledConnectionFactory.setMaxConnections(10);
+
+        JmsComponent jmsComponent = new JmsComponent();
+        jmsComponent.setConnectionFactory(pooledConnectionFactory);
+
+        getContext().addComponent("jms", jmsComponent);
+    }
+}
+Create Error Handling Route
+Create file src/main/java/com/alnafi/camel/activemq/ErrorHandlingRoute.java:
+
+package com.alnafi.camel.activemq;
+
+import org.apache.camel.builder.RouteBuilder;
+
+/**
+ * Route for handling errors and implementing reliability patterns
+ */
+public class ErrorHandlingRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        errorHandler(deadLetterChannel("jms:queue:orders.dlq")
+            .maximumRedeliveries(3)
+            .redeliveryDelay(2000)
+            .retryAttemptedLogLevel(org.apache.camel.LoggingLevel.WARN)
+            .retriesExhaustedLogLevel(org.apache.camel.LoggingLevel.ERROR));
+
+        from("jms:queue:orders.test.error")
+            .routeId("error-test-route")
+            .log("Processing potentially failing order: ${body}")
+            .choice()
+                .when(body().contains("ERROR"))
+                    .log("Simulating processing error for: ${body}")
+                    .throwException(new RuntimeException("Simulated processing error"))
+                .otherwise()
+                    .log("Order processed successfully: ${body}")
+                    .to("jms:queue:orders.test.success");
+
+        from("jms:queue:orders.dlq")
+            .routeId("dlq-monitor-route")
+            .log("Message arrived in Dead Letter Queue: ${body}")
+            .log("DLQ Headers: ${headers}")
+            .log("Exception: ${header.CamelExceptionCaught}")
+            .transform(simple("DLQ_PROCESSED: ${body} - Failed after ${header.JMSXDeliveryCount} attempts"));
+    }
+}
+Note: Both OrderProcessingRoute and ErrorHandlingRoute define a consumer on jms:queue:orders.dlq. In the running application only one route builder's competing consumer will actually receive each message (JMS queues use competing consumers), which is fine for this lab since the goal is to observe reliability behavior, not exact routing. For the unit tests in Task 3 we will use a direct: test route instead of live JMS queues so that tests are deterministic and do not require a running broker.
+
+Subtask 2.4: Create Main Application Class
+Create file src/main/java/com/alnafi/camel/activemq/CamelActiveMQApplication.java:
+
+package com.alnafi.camel.activemq;
+
+import org.apache.camel.main.Main;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Main application class for Camel ActiveMQ integration
+ */
+public class CamelActiveMQApplication {
+
+    private static final Logger logger = LoggerFactory.getLogger(CamelActiveMQApplication.class);
+
+    public static void main(String[] args) throws Exception {
+        logger.info("Starting Camel ActiveMQ Integration Application...");
+
+        Main main = new Main();
+
+        main.addRouteBuilder(new OrderProcessingRoute());
+        main.addRouteBuilder(new ErrorHandlingRoute());
+
+        main.configure().setDurationMaxMessages(100);
+        main.configure().setDurationMaxSeconds(300);
+
+        logger.info("Camel context starting...");
+        main.run(args);
+
+        logger.info("Camel ActiveMQ Integration Application stopped.");
+    }
+}
+Subtask 2.5: Create Configuration Files
+Create Logging Configuration
+Create file src/main/resources/logback.xml:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/camel-activemq.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/camel-activemq.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="org.apache.camel" level="INFO"/>
+    <logger name="com.alnafi.camel.activemq" level="DEBUG"/>
+    <logger name="org.apache.activemq" level="INFO"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+
+</configuration>
+Create Application Properties
+Create file src/main/resources/application.properties:
+
+# Camel Main Configuration
+camel.main.name=CamelActiveMQIntegration
+camel.main.duration-max-messages=100
+camel.main.duration-max-seconds=300
+
+# ActiveMQ Configuration
+activemq.broker.url=tcp://localhost:61616
+activemq.username=admin
+activemq.password=admin
+activemq.pool.max-connections=10
+
+# JMS Configuration
+jms.concurrent-consumers=3
+jms.max-concurrent-consumers=10
+jms.receive-timeout=5000
+
+# Logging Configuration
+logging.level.com.alnafi.camel.activemq=DEBUG
+logging.level.org.apache.camel=INFO
+logging.level.org.apache.activemq=INFO
+Deliverable for Task 2: Running mvn clean package from ~/camel-activemq-lab produces target/camel-activemq-integration-1.0.0.jar with a BUILD SUCCESS message. This confirms all routes, beans, and configuration files compile and package correctly.
+
+Task 3: Test the Messaging Flow and Ensure Message Reliability
+Subtask 3.1: Build and Run the Application
+Create Logs Directory
+cd ~/camel-activemq-lab
+mkdir -p logs
+Build the Project
+mvn clean compile
+mvn package
+Run the Application
+mvn exec:java
+Expected Output: You should see logs showing order generation every 5 seconds, orders being sent to ActiveMQ queues, orders being processed through each stage, and messages flowing through the complete pipeline (incoming to processed to fulfilled). Let it run for at least 30 seconds, then stop it with Ctrl+C.
+
+Deliverable: A captured log excerpt (from console or logs/camel-activemq.log) showing at least one complete order lifecycle: generated, processed, fulfilled, and notified.
+
+Subtask 3.2: Monitor ActiveMQ Web Console
+Access ActiveMQ Web Console
+Open your browser and navigate to: http://localhost:8161/admin
+
+Monitor Queues
+Click on "Queues" in the navigation menu
+You should see the following queues with message activity:
+orders.incoming
+orders.processed
+orders.fulfilled
+orders.dlq (Dead Letter Queue)
+Observe Message Flow
+Restart the application (mvn exec:java) and refresh the Queues page periodically. Note the "Messages Enqueued" and "Messages Dequeued" counters increasing for each queue as messages flow through the pipeline.
+
+Deliverable: A screenshot of the ActiveMQ Queues page showing non-zero enqueue/dequeue counts for at least three of the four queues listed above.
+
+Subtask 3.3: Test Message Reliability Features
+Create Test Script for Error Scenarios
+Stop the application (Ctrl+C) before running this script, since it targets the orders.test.error queue handled by ErrorHandlingRoute; restart the application afterward so the route is active.
+
+Create file test-error-handling.sh:
+
+#!/bin/bash
+
+echo "Testing Error Handling and Message Reliability"
+echo "=============================================="
+
+# Function to send test message
+send_test_message() {
+    local message="$1"
+    local queue="$2"
+
+    echo "Sending message '$message' to queue '$queue'"
+
+    curl -s -u admin:admin \
+         -d "body=$message" \
+         -H "Content-Type: application/x-www-form-urlencoded" \
+         "http://localhost:8161/api/message/$queue?type=queue"
+
+    echo ""
+}
+
+# Test normal message processing
+echo "1. Testing normal message processing..."
+send_test_message "TEST_ORDER:Normal processing test" "orders.test.error"
+sleep 2
+
+# Test error scenario
+echo "2. Testing error scenario (should go to DLQ after retries)..."
+send_test_message "ERROR_ORDER:This will cause an error" "orders.test.error"
+sleep 10
+
+# Test multiple error messages
+echo "3. Testing multiple error messages..."
+for i in {1..3}; do
+    send_test_message "ERROR_ORDER_$i:Batch error test $i" "orders.test.error"
+    sleep 1
+done
+
+echo "Test completed. Check ActiveMQ console and application logs for DLQ entries."
+Make Script Executable and Run
+chmod +x test-error-handling.sh
+./test-error-handling.sh
+Verify Redelivery and Dead Letter Behavior
+In the application log, confirm you see three redelivery attempts (per the maximumRedeliveries(3) policy) followed by a message logged from dlq-monitor-route such as DLQ_PROCESSED: ... - Failed after 4 attempts.
+
+Deliverable: A log excerpt showing the sequence of retry warnings followed by the final DLQ log line, and a screenshot of the ActiveMQ console showing at least one message enqueued on orders.dlq.
+
+Subtask 3.4: Verify Message Persistence
+Stop the Camel Application
+Press Ctrl+C to stop the running application, but leave ActiveMQ itself running.
+
+Send Messages While Application is Down
+curl -u admin:admin \
+     -d "body=OFFLINE_ORDER:Message sent while app was down" \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     "http://localhost:8161/api/message/orders.incoming?type=queue"
+Confirm the Message Is Held in the Broker
+In the ActiveMQ web console, open the orders.incoming queue and confirm "Number Of Pending Messages" is at least 1 while the Camel application is still stopped. This demonstrates that KahaDB persistence (configured in config/activemq.xml) retains the message even with no active consumer.
+
+Restart Application and Verify Message Processing
+mvn exec:java
+Verification: The offline message should be picked up and processed within seconds of the application starting, and you should see it flow through orders.processed and orders.fulfilled in the logs, proving that messages survive consumer downtime.
+
+Deliverable: Two console/screenshot captures: one showing the pending message count greater than zero while the app is stopped, and one showing the log line proving that same OFFLINE_ORDER message was processed after restart.
+
+Subtask 3.5: Performance and Reliability Load Testing
+Create Load Test Script
+Create file load-test.sh:
+
+#!/bin/bash
+
+echo "Starting Load Test for Camel ActiveMQ Integration"
+echo "================================================"
+
+send_batch_messages() {
+    local batch_size=$1
+    local queue_name=$2
+
+    echo "Sending $batch_size messages to $queue_name..."
+
+    for i in $(seq 1 $batch_size); do
+        message="LOAD_TEST_ORDER_$i:Customer_$i|Product_$((i % 10))|Quantity_$((i % 5 + 1))"
+
+        curl -s -u admin:admin \
+             -d "body=$message" \
+             -H "Content-Type: application/x-www-form-urlencoded" \
+             "http://localhost:8161/api/message/$queue_name?type=queue" > /dev/null
+
+        if [ $((i % 10)) -eq 0 ]; then
+            echo "Sent $i messages..."
+        fi
+    done
+
+    echo "Batch of $batch_size messages sent successfully!"
+}
+
+send_batch_messages 50 "orders.incoming"
+sleep 5
+send_batch_messages 25 "orders.test.error"
+
+echo "Load test completed. Monitor ActiveMQ console for message processing."
+Run Load Test with Application Running
+Make sure mvn exec:java is running in one terminal, then in another terminal:
+
+chmod +x load-test.sh
+./load-test.sh
+Observe Throughput
+In the ActiveMQ web console, watch the orders.processed and orders.fulfilled queues drain over the following 1-2 minutes (fulfillment has a built-in 2 second delay per message). Confirm that the "Messages Enqueued" counter on orders.incoming reaches at least 50 and that the dequeue counters eventually catch up.
+
+Deliverable: A screenshot or log excerpt showing the enqueue count on orders.incoming reaching at least 50 after running the load test, plus a note of how long it took for orders.fulfilled to reach the same count (approximately 50 x 2 seconds plus processing overhead, given the fulfillment delay).
+
+Subtask 3.6: Create and Run Unit Tests
+Unit tests should not depend on a live ActiveMQ broker or wall-clock timers, so this test class exercises the OrderProcessor logic and the dead-letter redelivery pattern using in-memory direct: and mock: endpoints, which is the standard Camel testing approach.
+
+Create Test Class
+Create file src/test/java/com/alnafi/camel/activemq/OrderProcessingRouteTest.java:
+
+package com.alnafi.camel.activemq;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.mock.MockEndpoint;
+import org.apache.camel.test.junit5.CamelTestSupport;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+public class OrderProcessingRouteTest extends CamelTestSupport {
+
+    @Override
+    protected RouteBuilder createRouteBuilder() throws Exception {
+        return new RouteBuilder() {
+            @Override
+            public void configure() throws Exception {
+                // Redelivery policy mirrors ErrorHandlingRoute, but points at an
+                // in-memory mock endpoint instead of a live JMS dead letter queue
+                errorHandler(deadLetterChannel("mock:dlq")
+                    .maximumRedeliveries(2)
+                    .redeliveryDelay(0));
+
+                from("direct:start")
+                    .routeId("test-order-processing-route")
+                    .process(new OrderProcessor())
+                    .to("mock:result");
+
+                from("direct:error")
+                    .routeId("test-error-route")
+                    .choice()
+                        .when(body().contains("ERROR"))
+                            .throwException(new RuntimeException("Simulated processing error"))
+                        .otherwise()
+                            .to("mock:success");
+            }
+        };
+    }
+
+    @Test
+    public void testOrderProcessing() throws Exception {
+        MockEndpoint mockResult = getMockEndpoint("mock:result");
+        mockResult.expectedMessageCount(1);
+
+        template.sendBody("direct:start", "ORDER_ID:1|CUSTOMER:Test|PRODUCT:Laptop|QUANTITY:1|PRICE:$999.99");
+
+        mockResult.assertIsSatisfied();
+
+        String processedBody = mockResult.getReceivedExchanges().get(0).getIn().getBody(String.class);
+        assertTrue(processedBody.contains("PROCESSED_ORDER"),
+            "Processed body should contain the PROCESSED_ORDER marker");
+        assertTrue(processedBody.contains("ORDER_ID:1"),
+            "Processed body should retain the original order content");
+    }
+
+    @Test
+    public void testOrderProcessorSetsHeaders() throws Exception {
+        MockEndpoint mockResult = getMockEndpoint("mock:result");
+        mockResult.expectedMessageCount(1);
+        mockResult.expectedHeaderReceived("OrderStatus", "PROCESSED");
+
+        template.sendBody("direct:start", "ORDER_ID:2|CUSTOMER:Test2|PRODUCT:Tablet|QUANTITY:2|PRICE:$450.00");
+
+        mockResult.assertIsSatisfied();
+    }
+
+    @Test
+    public void testSuccessfulOrderDoesNotHitDlq() throws Exception {
+        MockEndpoint mockSuccess = getMockEndpoint("mock:success");
+        MockEndpoint mockDlq = getMockEndpoint("mock:dlq");
+        mockSuccess.expectedMessageCount(1);
+        mockDlq.expectedMessageCount(0);
+
+        template.sendBody("direct:error", "NORMAL_ORDER:Everything is fine");
+
+        mockSuccess.assertIsSatisfied();
+        mockDlq.assertIsSatisfied();
+    }
+
+    @Test
+    public void testFailingOrderIsRedeliveredThenSentToDlq() throws Exception {
+        MockEndpoint mockDlq = getMockEndpoint("mock:dlq");
+        MockEndpoint mockSuccess = getMockEndpoint("mock:success");
+        mockDlq.expectedMessageCount(1);
+        mockSuccess.expectedMessageCount(0);
+
+        template.sendBody("direct:error", "ERROR_ORDER:This will fail every time");
+
+        mockDlq.assertIsSatisfied();
+        mockSuccess.assertIsSatisfied();
+    }
+}
+Run the Unit Tests
+cd ~/camel-activemq-lab
+mvn test
+Expected Output: Maven Surefire should report Tests run: 4, Failures: 0, Errors: 0 with a final BUILD SUCCESS. The four tests confirm, respectively: correct order transformation, correct header propagation, that healthy messages never reach the DLQ, and that a message which always throws an exception is redelivered per the error handler policy and then routed to the dead letter mock endpoint.
+
+Deliverable: The full console output of mvn test showing Tests run: 4, Failures: 0, Errors: 0 and BUILD SUCCESS.
+
+Expected Outcomes
+A running ActiveMQ broker with a custom configuration and five Camel routes (generation, processing, fulfillment, notification, and dead-letter handling) moving messages through the orders.* queue chain, observable live in the ActiveMQ web console.
+A passing Maven test suite (mvn test) that validates the OrderProcessor transformation logic and the redelivery/dead-letter-channel behavior without requiring a live broker connection.
+Verified evidence of message persistence (messages surviving consumer downtime) and reliability under load (50+ messages processed through the full pipeline via the load test script).
+Conclusion
+In this lab, you built a complete Enterprise Integration Patterns pipeline by connecting Apache Camel to Apache ActiveMQ: you configured a persistent, multi-protocol broker; wrote a chain of routes that generate, process, fulfill, and notify on orders using the Message Channel and Pipes-and-Filters patterns; and layered in a Dead Letter Channel with bounded redelivery to handle failures gracefully. You then validated the system from multiple angles, using the ActiveMQ web console to observe live queue depths, shell scripts to drive error and load scenarios, manual persistence checks to confirm messages survive consumer downtime, and JUnit 5 with camel-test-junit5 to lock in the processing and error-handling logic with fast, broker-independent automated tests. Together these exercises demonstrate the core reliability guarantees that make message-oriented middleware valuable in production systems: durable storage, automatic retry, and dead-letter isolation of poison messages.
+
+To clean up your environment, stop the Camel application with Ctrl+C in its terminal, then stop ActiveMQ with Ctrl+C in the broker's console terminal (or ./bin/activemq stop if it was started as a background service). You can optionally remove the KahaDB data directory under ActiveMQ's data folder if you want a completely fresh broker state for future runs, and remove ~/camel-activemq-lab if you no longer need the project files.
+
+As a next step, consider extending this lab by adding a Content-Based Router that splits orders by product category into separate processing queues, introducing a Splitter/Aggregator pair to batch orders by customer before fulfillment, or replacing the REST-based test scripts with a proper JMS producer client for more realistic load generation.
