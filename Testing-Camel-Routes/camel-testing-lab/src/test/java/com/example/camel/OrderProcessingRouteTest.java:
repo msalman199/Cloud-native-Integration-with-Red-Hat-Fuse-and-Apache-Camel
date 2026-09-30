@@ -1,0 +1,48 @@
+package com.example.camel;
+
+import org.apache.camel.EndpointInject;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.mock.MockEndpoint;
+import org.apache.camel.test.junit5.CamelTestSupport;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+public class OrderProcessingRouteTest extends CamelTestSupport {
+
+    @EndpointInject("mock:priorityResult")
+    private MockEndpoint priorityMockEndpoint;
+
+    @EndpointInject("mock:standardResult")
+    private MockEndpoint standardMockEndpoint;
+
+    @Override
+    protected RouteBuilder createRouteBuilder() throws Exception {
+        return new OrderProcessingRoute();
+    }
+
+    @Test
+    @DisplayName("Test Priority Order Processing")
+    public void testPriorityOrderProcessing() throws Exception {
+        String orderMessage = "Order #123 - PRIORITY - Laptop";
+        priorityMockEndpoint.expectedMessageCount(1);
+        priorityMockEndpoint.expectedBodiesReceived("PRIORITY: " + orderMessage);
+        priorityMockEndpoint.expectedHeaderReceived("OrderType", "PRIORITY");
+
+        template.sendBody("direct:processOrder", orderMessage);
+
+        priorityMockEndpoint.assertIsSatisfied();
+    }
+
+    @Test
+    @DisplayName("Test Standard Order Processing")
+    public void testStandardOrderProcessing() throws Exception {
+        String orderMessage = "Order #456 - Mouse";
+        standardMockEndpoint.expectedMessageCount(1);
+        standardMockEndpoint.expectedBodiesReceived("STANDARD: " + orderMessage);
+        standardMockEndpoint.expectedHeaderReceived("OrderType", "STANDARD");
+
+        template.sendBody("direct:processOrder", orderMessage);
+
+        standardMockEndpoint.assertIsSatisfied();
+    }
+}

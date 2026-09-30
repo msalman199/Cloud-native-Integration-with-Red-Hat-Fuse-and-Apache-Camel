@@ -1,0 +1,520 @@
+Lab 6: Testing Camel Routes
+Objectives
+By the end of this lab, you will be able to:
+
+Set up unit tests for Apache Camel routes using the JUnit framework
+Use CamelTestSupport to isolate and test individual routes effectively
+Simulate input data and validate output results in Camel route testing
+Implement mock endpoints to verify message flow and transformations
+Apply testing best practices for integration routes in enterprise applications
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Apache Camel concepts (routes, endpoints, processors)
+Familiarity with Java programming language
+Knowledge of Maven build tool and dependency management
+Understanding of unit testing concepts
+Experience with JUnit testing framework (basic level)
+Your machine needs the following installed. Verify each with the commands shown:
+
+java -version
+mvn -version
+Expected output should show Java 11 or higher and Maven 3.6 or higher. If either is missing, install them first:
+
+# Debian/Ubuntu example
+sudo apt-get update
+sudo apt-get install -y openjdk-11-jdk maven
+All other dependencies (Apache Camel 3.x, JUnit 5, camel-test-junit5, camel-mock) are declared in the pom.xml you will create in Task 1, and Maven will download them automatically the first time you build.
+
+Task 1: Set Up the Maven Project and a Route to Test
+Subtask 1.1: Create the Project Structure
+Open your terminal and create the project directory:
+mkdir camel-testing-lab
+cd camel-testing-lab
+Create the standard Maven source layout:
+mkdir -p src/main/java/com/example/camel
+mkdir -p src/test/java/com/example/camel
+mkdir -p src/main/resources
+mkdir -p src/test/resources
+Subtask 1.2: Configure Maven Dependencies
+Create pom.xml in the project root with the following content:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>camel-testing-lab</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <camel.version>3.21.0</camel.version>
+        <junit.version>5.9.2</junit.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-test-junit5</artifactId>
+            <version>${camel.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-direct</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-mock</artifactId>
+            <version>${camel.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j-impl</artifactId>
+            <version>2.20.0</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.0.0-M9</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Subtask 1.3: Create a Route to Test
+Create src/main/java/com/example/camel/OrderProcessingRoute.java:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class OrderProcessingRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        from("direct:processOrder")
+            .routeId("order-processing-route")
+            .log("Processing order: ${body}")
+            .choice()
+                .when(simple("${body} contains 'PRIORITY'"))
+                    .log("Priority order detected")
+                    .setHeader("OrderType", constant("PRIORITY"))
+                    .to("direct:priorityQueue")
+                .otherwise()
+                    .log("Standard order processing")
+                    .setHeader("OrderType", constant("STANDARD"))
+                    .to("direct:standardQueue")
+            .end();
+
+        from("direct:priorityQueue")
+            .routeId("priority-queue-route")
+            .log("Handling priority order: ${body}")
+            .transform(simple("PRIORITY: ${body}"))
+            .to("mock:priorityResult");
+
+        from("direct:standardQueue")
+            .routeId("standard-queue-route")
+            .log("Handling standard order: ${body}")
+            .transform(simple("STANDARD: ${body}"))
+            .to("mock:standardResult");
+    }
+}
+Subtask 1.4: Verify the Project Compiles
+Run:
+
+mvn clean compile
+Deliverable: A BUILD SUCCESS message from Maven, confirming the project structure, pom.xml, and OrderProcessingRoute class all compile without errors.
+
+Task 2: Test Routes with CamelTestSupport and Mock Endpoints
+Subtask 2.1: Write a Basic Route Test
+Create src/test/java/com/example/camel/OrderProcessingRouteTest.java:
+
+package com.example.camel;
+
+import org.apache.camel.EndpointInject;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.mock.MockEndpoint;
+import org.apache.camel.test.junit5.CamelTestSupport;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+public class OrderProcessingRouteTest extends CamelTestSupport {
+
+    @EndpointInject("mock:priorityResult")
+    private MockEndpoint priorityMockEndpoint;
+
+    @EndpointInject("mock:standardResult")
+    private MockEndpoint standardMockEndpoint;
+
+    @Override
+    protected RouteBuilder createRouteBuilder() throws Exception {
+        return new OrderProcessingRoute();
+    }
+
+    @Test
+    @DisplayName("Test Priority Order Processing")
+    public void testPriorityOrderProcessing() throws Exception {
+        String orderMessage = "Order #123 - PRIORITY - Laptop";
+        priorityMockEndpoint.expectedMessageCount(1);
+        priorityMockEndpoint.expectedBodiesReceived("PRIORITY: " + orderMessage);
+        priorityMockEndpoint.expectedHeaderReceived("OrderType", "PRIORITY");
+
+        template.sendBody("direct:processOrder", orderMessage);
+
+        priorityMockEndpoint.assertIsSatisfied();
+    }
+
+    @Test
+    @DisplayName("Test Standard Order Processing")
+    public void testStandardOrderProcessing() throws Exception {
+        String orderMessage = "Order #456 - Mouse";
+        standardMockEndpoint.expectedMessageCount(1);
+        standardMockEndpoint.expectedBodiesReceived("STANDARD: " + orderMessage);
+        standardMockEndpoint.expectedHeaderReceived("OrderType", "STANDARD");
+
+        template.sendBody("direct:processOrder", orderMessage);
+
+        standardMockEndpoint.assertIsSatisfied();
+    }
+}
+Deliverable: Running mvn test -Dtest=OrderProcessingRouteTest shows 2 tests passed, 0 failures. This confirms CamelTestSupport correctly starts an in-memory CamelContext, injects mock endpoints, and routes the priority/standard messages as expected.
+
+Subtask 2.2: Test a Route with a Custom Processor
+Create src/test/java/com/example/camel/AdvancedRouteTest.java:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.mock.MockEndpoint;
+import org.apache.camel.test.junit5.CamelTestSupport;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+public class AdvancedRouteTest extends CamelTestSupport {
+
+    @Override
+    protected RouteBuilder createRouteBuilder() throws Exception {
+        return new RouteBuilder() {
+            @Override
+            public void configure() throws Exception {
+                from("direct:dataProcessor")
+                    .routeId("data-processing-route")
+                    .log("Received data: ${body}")
+                    .process(exchange -> {
+                        String body = exchange.getIn().getBody(String.class);
+                        String processedData = body.toUpperCase() + "_PROCESSED";
+                        exchange.getIn().setBody(processedData);
+                        exchange.getIn().setHeader("ProcessedAt", System.currentTimeMillis());
+                    })
+                    .to("mock:result");
+            }
+        };
+    }
+
+    @BeforeEach
+    public void setupMockEndpoints() {
+        getMockEndpoint("mock:result").reset();
+    }
+
+    @Test
+    @DisplayName("Test Data Processing with Custom Processor")
+    public void testDataProcessingWithProcessor() throws Exception {
+        MockEndpoint mockResult = getMockEndpoint("mock:result");
+        mockResult.expectedMessageCount(1);
+        mockResult.expectedBodiesReceived("HELLO WORLD_PROCESSED");
+
+        template.sendBody("direct:dataProcessor", "hello world");
+
+        mockResult.assertIsSatisfied(5000);
+    }
+
+    @Test
+    @DisplayName("Test Multiple Messages Processing")
+    public void testMultipleMessagesProcessing() throws Exception {
+        MockEndpoint mockResult = getMockEndpoint("mock:result");
+        mockResult.expectedMessageCount(3);
+        mockResult.expectedBodiesReceivedInAnyOrder(
+            "MESSAGE1_PROCESSED",
+            "MESSAGE2_PROCESSED",
+            "MESSAGE3_PROCESSED"
+        );
+
+        template.sendBody("direct:dataProcessor", "message1");
+        template.sendBody("direct:dataProcessor", "message2");
+        template.sendBody("direct:dataProcessor", "message3");
+
+        mockResult.assertIsSatisfied();
+    }
+}
+Deliverable: Running mvn test -Dtest=AdvancedRouteTest shows both tests passing, confirming that an inline RouteBuilder, a custom Processor, and header assertions work correctly inside a CamelTestSupport test class.
+
+Task 3: Simulate Input and Validate Output
+Subtask 3.1: Simulate Varying Input Data
+Create src/test/java/com/example/camel/InputSimulationTest.java:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.mock.MockEndpoint;
+import org.apache.camel.test.junit5.CamelTestSupport;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class InputSimulationTest extends CamelTestSupport {
+
+    @Override
+    protected RouteBuilder createRouteBuilder() throws Exception {
+        return new RouteBuilder() {
+            @Override
+            public void configure() throws Exception {
+
+                from("direct:validateCustomer")
+                    .routeId("customer-validation-route")
+                    .log("Validating customer: ${body}")
+                    .choice()
+                        .when(header("customerId").isNull())
+                            .setHeader("ValidationResult", constant("FAILED"))
+                            .setHeader("ErrorMessage", constant("Customer ID is required"))
+                            .to("mock:validationFailed")
+                        .when(simple("${header.customerId} < 1000"))
+                            .setHeader("ValidationResult", constant("FAILED"))
+                            .setHeader("ErrorMessage", constant("Invalid customer ID"))
+                            .to("mock:validationFailed")
+                        .otherwise()
+                            .setHeader("ValidationResult", constant("SUCCESS"))
+                            .process(exchange -> {
+                                String customerId = exchange.getIn().getHeader("customerId", String.class);
+                                exchange.getIn().setBody("Customer " + customerId + " validated successfully");
+                            })
+                            .to("mock:validationSuccess")
+                    .end();
+            }
+        };
+    }
+
+    @Test
+    @DisplayName("Test Valid Customer Input")
+    public void testValidCustomerInput() throws Exception {
+        MockEndpoint successEndpoint = getMockEndpoint("mock:validationSuccess");
+        MockEndpoint failedEndpoint = getMockEndpoint("mock:validationFailed");
+
+        successEndpoint.expectedMessageCount(1);
+        successEndpoint.expectedHeaderReceived("ValidationResult", "SUCCESS");
+        failedEndpoint.expectedMessageCount(0);
+
+        Map<String, Object> headers = new HashMap<>();
+        headers.put("customerId", "12345");
+
+        template.sendBodyAndHeaders("direct:validateCustomer", "John Doe", headers);
+
+        successEndpoint.assertIsSatisfied();
+        failedEndpoint.assertIsSatisfied();
+    }
+
+    @Test
+    @DisplayName("Test Invalid Customer Input - Missing ID")
+    public void testInvalidCustomerInputMissingId() throws Exception {
+        MockEndpoint successEndpoint = getMockEndpoint("mock:validationSuccess");
+        MockEndpoint failedEndpoint = getMockEndpoint("mock:validationFailed");
+
+        successEndpoint.expectedMessageCount(0);
+        failedEndpoint.expectedMessageCount(1);
+        failedEndpoint.expectedHeaderReceived("ValidationResult", "FAILED");
+        failedEndpoint.expectedHeaderReceived("ErrorMessage", "Customer ID is required");
+
+        template.sendBody("direct:validateCustomer", "Jane Doe");
+
+        successEndpoint.assertIsSatisfied();
+        failedEndpoint.assertIsSatisfied();
+    }
+
+    @Test
+    @DisplayName("Test Invalid Customer Input - Invalid ID")
+    public void testInvalidCustomerInputInvalidId() throws Exception {
+        MockEndpoint successEndpoint = getMockEndpoint("mock:validationSuccess");
+        MockEndpoint failedEndpoint = getMockEndpoint("mock:validationFailed");
+
+        successEndpoint.expectedMessageCount(0);
+        failedEndpoint.expectedMessageCount(1);
+        failedEndpoint.expectedHeaderReceived("ValidationResult", "FAILED");
+        failedEndpoint.expectedHeaderReceived("ErrorMessage", "Invalid customer ID");
+
+        Map<String, Object> headers = new HashMap<>();
+        headers.put("customerId", "500");
+
+        template.sendBodyAndHeaders("direct:validateCustomer", "Bob Smith", headers);
+
+        successEndpoint.assertIsSatisfied();
+        failedEndpoint.assertIsSatisfied();
+    }
+}
+Deliverable: mvn test -Dtest=InputSimulationTest reports 3 passing tests, one for each simulated input condition (valid ID, missing ID, invalid ID), proving the route branches correctly based on header content.
+
+Subtask 3.2: Validate Transformed Output
+Create src/test/java/com/example/camel/OutputValidationTest.java:
+
+package com.example.camel;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.mock.MockEndpoint;
+import org.apache.camel.test.junit5.CamelTestSupport;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+public class OutputValidationTest extends CamelTestSupport {
+
+    @Override
+    protected RouteBuilder createRouteBuilder() throws Exception {
+        return new RouteBuilder() {
+            @Override
+            public void configure() throws Exception {
+
+                from("direct:orderTransformation")
+                    .routeId("order-transformation-route")
+                    .log("Transforming order: ${body}")
+                    .process(exchange -> {
+                        String orderData = exchange.getIn().getBody(String.class);
+                        String[] parts = orderData.split(",");
+
+                        if (parts.length >= 3) {
+                            String orderId = parts[0].trim();
+                            String product = parts[1].trim();
+                            String quantity = parts[2].trim();
+
+                            String transformedOrder = String.format(
+                                "{\"orderId\":\"%s\",\"product\":\"%s\",\"quantity\":%s,\"status\":\"PROCESSED\"}",
+                                orderId, product, quantity
+                            );
+
+                            exchange.getIn().setBody(transformedOrder);
+                            exchange.getIn().setHeader("OrderId", orderId);
+                            exchange.getIn().setHeader("Product", product);
+                            exchange.getIn().setHeader("Quantity", Integer.parseInt(quantity));
+                        }
+                    })
+                    .to("mock:transformedOrder");
+            }
+        };
+    }
+
+    @Test
+    @DisplayName("Test Order Transformation Output Format")
+    public void testOrderTransformationOutputFormat() throws Exception {
+        MockEndpoint mockEndpoint = getMockEndpoint("mock:transformedOrder");
+        mockEndpoint.expectedMessageCount(1);
+
+        String expectedJson = "{\"orderId\":\"ORD-001\",\"product\":\"Laptop\",\"quantity\":2,\"status\":\"PROCESSED\"}";
+        mockEndpoint.expectedBodiesReceived(expectedJson);
+        mockEndpoint.expectedHeaderReceived("OrderId", "ORD-001");
+        mockEndpoint.expectedHeaderReceived("Product", "Laptop");
+        mockEndpoint.expectedHeaderReceived("Quantity", 2);
+
+        template.sendBody("direct:orderTransformation", "ORD-001, Laptop, 2");
+
+        mockEndpoint.assertIsSatisfied();
+    }
+
+    @Test
+    @DisplayName("Test Multiple Orders Output Validation")
+    public void testMultipleOrdersOutputValidation() throws Exception {
+        MockEndpoint mockEndpoint = getMockEndpoint("mock:transformedOrder");
+        mockEndpoint.expectedMessageCount(3);
+
+        template.sendBody("direct:orderTransformation", "ORD-001, Laptop, 1");
+        template.sendBody("direct:orderTransformation", "ORD-002, Mouse, 5");
+        template.sendBody("direct:orderTransformation", "ORD-003, Keyboard, 2");
+
+        mockEndpoint.assertIsSatisfied();
+
+        List<Exchange> exchanges = mockEndpoint.getReceivedExchanges();
+
+        String firstBody = exchanges.get(0).getIn().getBody(String.class);
+        assertTrue(firstBody.contains("\"orderId\":\"ORD-001\""));
+        assertTrue(firstBody.contains("\"product\":\"Laptop\""));
+        assertTrue(firstBody.contains("\"quantity\":1"));
+
+        String secondBody = exchanges.get(1).getIn().getBody(String.class);
+        assertTrue(secondBody.contains("\"orderId\":\"ORD-002\""));
+        assertTrue(secondBody.contains("\"product\":\"Mouse\""));
+        assertTrue(secondBody.contains("\"quantity\":5"));
+    }
+
+    @Test
+    @DisplayName("Test Output Headers Validation")
+    public void testOutputHeadersValidation() throws Exception {
+        MockEndpoint mockEndpoint = getMockEndpoint("mock:transformedOrder");
+        mockEndpoint.expectedMessageCount(1);
+        mockEndpoint.expectedHeaderReceived("OrderId", "ORD-999");
+        mockEndpoint.expectedHeaderReceived("Product", "Monitor");
+        mockEndpoint.expectedHeaderReceived("Quantity", 3);
+
+        template.sendBody("direct:orderTransformation", "ORD-999, Monitor, 3");
+
+        mockEndpoint.assertIsSatisfied();
+
+        Exchange receivedExchange = mockEndpoint.getReceivedExchanges().get(0);
+        assertEquals("ORD-999", receivedExchange.getIn().getHeader("OrderId", String.class));
+        assertEquals("Monitor", receivedExchange.getIn().getHeader("Product", String.class));
+        assertEquals(Integer.valueOf(3), receivedExchange.getIn().getHeader("Quantity", Integer.class));
+    }
+}
+Deliverable: mvn test -Dtest=OutputValidationTest reports 3 passing tests. This confirms that both message body content (JSON string format) and message headers produced by the route's processor match exactly what was expected.
+
+Subtask 3.3: Run the Full Test Suite
+Run all tests together and generate a report:
+
+mvn clean test
+mvn surefire-report:report
+Deliverable: Console output showing Tests run: 11, Failures: 0, Errors: 0, Skipped: 0 (across OrderProcessingRouteTest, AdvancedRouteTest, InputSimulationTest, and OutputValidationTest), plus an HTML report available at target/site/surefire-report.html.
+
+Expected Outcomes
+A working Maven project containing a multi-branch Camel route and four JUnit 5 test classes that all pass
+Confidence using CamelTestSupport, @EndpointInject, and MockEndpoint to isolate routes from real infrastructure
+Practical experience simulating varied inputs (valid, missing, and invalid data) and asserting both message bodies and headers on the output side
+Troubleshooting
+Issue 1: Tests fail intermittently with "AssertionError" on `assertIsSatisfied()" Symptom: A test passes sometimes and fails other times with no code changes. Diagnostic hint: check whether the mock endpoint is being reused across tests without being reset, and whether the default assertion timeout is too short for the message volume being sent.
+
+Issue 2: Maven cannot resolve camel-test-junit5 or reports NoClassDefFoundError for Camel classes Symptom: The build fails during mvn test with dependency or class-loading errors. Diagnostic hint: confirm the camel.version property matches across all camel-* dependencies in pom.xml, and run mvn dependency:tree to look for version conflicts.
+
+Conclusion
+In this lab, you built a complete Apache Camel testing workflow from scratch: a Maven project with a multi-route order processing application, and a full suite of JUnit 5 tests built on CamelTestSupport. You learned how to inject and reset MockEndpoint instances, simulate a range of realistic inputs including missing and invalid data, and validate both message bodies and headers produced by routes and custom processors. Along the way you practiced core testing best practices for integration code: isolating routes from external systems using mocks, asserting on both content and metadata, and using timeouts to handle asynchronous message delivery reliably. From here, natural next steps include exploring Camel's performance and load testing tools such as camel-test-spring with concurrent producers, integrating these same route definitions with a real message broker like ActiveMQ or Kafka for end-to-end testing, and adding these test classes to a continuous integration pipeline so route regressions are caught automatically on every commit.
