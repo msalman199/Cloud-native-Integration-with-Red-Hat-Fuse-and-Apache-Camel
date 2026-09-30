@@ -1,0 +1,854 @@
+Lab 11: Exposing RESTful Services with Camel
+Objectives
+By the end of this lab, you will be able to:
+
+Understand the fundamentals of Apache Camel's REST DSL
+Create a complete RESTful API using Camel's REST DSL
+Implement all four HTTP methods: GET, POST, PUT, and DELETE
+Configure REST endpoints with proper routing
+Test REST API endpoints using both CURL and Postman
+Handle JSON data in REST operations
+Implement error handling for REST services
+Deploy and run a Camel REST application
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of REST API concepts
+Familiarity with HTTP methods (GET, POST, PUT, DELETE)
+Basic knowledge of JSON data format
+Understanding of Apache Camel routing concepts
+Experience with command-line operations
+Basic Java programming knowledge
+Required Tools
+Java 11 or higher
+Apache Maven 3.6+
+Text editor or IDE
+CURL command-line tool
+Postman (optional, for GUI testing)
+Ready-to-Use Cloud Machines
+Al Nafi provides pre-configured Linux-based cloud machines with all necessary tools installed. Simply click Start Lab to access your environment. No need to build your own VM or install software manually.
+
+Your cloud machine includes:
+
+Java 11 OpenJDK
+Apache Maven
+Apache Camel libraries
+CURL utility
+Text editors (nano, vim)
+Task 1: Setting Up the Camel REST Project
+Subtask 1.1: Create Maven Project Structure
+First, let's create a new Maven project for our Camel REST service.
+
+# Create project directory
+mkdir camel-rest-lab
+cd camel-rest-lab
+
+# Create Maven project structure
+mkdir -p src/main/java/com/example/camel
+mkdir -p src/main/resources
+mkdir -p src/test/java
+Subtask 1.2: Create Maven POM File
+Create the pom.xml file with necessary dependencies:
+
+nano pom.xml
+Add the following content:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>camel-rest-lab</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <camel.version>3.20.0</camel.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+    
+    <dependencies>
+        <!-- Camel Core -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Camel Main for standalone applications -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-main</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Camel REST DSL -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-rest</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Jetty for HTTP server -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jetty</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Jackson for JSON processing -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jackson</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Bean Validation -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-bean-validator</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>1.7.36</version>
+        </dependency>
+    </dependencies>
+    
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.camel</groupId>
+                <artifactId>camel-maven-plugin</artifactId>
+                <version>${camel.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Subtask 1.3: Create Data Model
+Create a simple User model for our REST API:
+
+nano src/main/java/com/example/camel/User.java
+Add the following content:
+
+package com.example.camel;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public class User {
+    @JsonProperty("id")
+    private Long id;
+    
+    @JsonProperty("name")
+    private String name;
+    
+    @JsonProperty("email")
+    private String email;
+    
+    @JsonProperty("age")
+    private Integer age;
+    
+    // Default constructor
+    public User() {}
+    
+    // Constructor with parameters
+    public User(Long id, String name, String email, Integer age) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.age = age;
+    }
+    
+    // Getters and Setters
+    public Long getId() {
+        return id;
+    }
+    
+    public void setId(Long id) {
+        this.id = id;
+    }
+    
+    public String getName() {
+        return name;
+    }
+    
+    public void setName(String name) {
+        this.name = name;
+    }
+    
+    public String getEmail() {
+        return email;
+    }
+    
+    public void setEmail(String email) {
+        this.email = email;
+    }
+    
+    public Integer getAge() {
+        return age;
+    }
+    
+    public void setAge(Integer age) {
+        this.age = age;
+    }
+    
+    @Override
+    public String toString() {
+        return "User{" +
+                "id=" + id +
+                ", name='" + name + '\'' +
+                ", email='" + email + '\'' +
+                ", age=" + age +
+                '}';
+    }
+}
+Task 2: Creating the RESTful API with Camel REST DSL
+Subtask 2.1: Create User Service Bean
+Create a service class to handle business logic:
+
+nano src/main/java/com/example/camel/UserService.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Header;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+
+@Component
+public class UserService {
+    
+    private final Map<Long, User> users = new HashMap<>();
+    private final AtomicLong idGenerator = new AtomicLong(1);
+    
+    public UserService() {
+        // Initialize with sample data
+        users.put(1L, new User(1L, "John Doe", "john@example.com", 30));
+        users.put(2L, new User(2L, "Jane Smith", "jane@example.com", 25));
+        users.put(3L, new User(3L, "Bob Johnson", "bob@example.com", 35));
+        idGenerator.set(4);
+    }
+    
+    public List<User> getAllUsers() {
+        return new ArrayList<>(users.values());
+    }
+    
+    public User getUserById(@Header("id") String id) {
+        try {
+            Long userId = Long.parseLong(id);
+            return users.get(userId);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+    
+    public User createUser(User user, Exchange exchange) {
+        if (user.getName() == null || user.getName().trim().isEmpty()) {
+            exchange.getIn().setHeader(Exchange.HTTP_RESPONSE_CODE, 400);
+            return null;
+        }
+        
+        Long newId = idGenerator.getAndIncrement();
+        user.setId(newId);
+        users.put(newId, user);
+        
+        exchange.getIn().setHeader(Exchange.HTTP_RESPONSE_CODE, 201);
+        return user;
+    }
+    
+    public User updateUser(@Header("id") String id, User updatedUser, Exchange exchange) {
+        try {
+            Long userId = Long.parseLong(id);
+            User existingUser = users.get(userId);
+            
+            if (existingUser == null) {
+                exchange.getIn().setHeader(Exchange.HTTP_RESPONSE_CODE, 404);
+                return null;
+            }
+            
+            updatedUser.setId(userId);
+            users.put(userId, updatedUser);
+            
+            exchange.getIn().setHeader(Exchange.HTTP_RESPONSE_CODE, 200);
+            return updatedUser;
+        } catch (NumberFormatException e) {
+            exchange.getIn().setHeader(Exchange.HTTP_RESPONSE_CODE, 400);
+            return null;
+        }
+    }
+    
+    public String deleteUser(@Header("id") String id, Exchange exchange) {
+        try {
+            Long userId = Long.parseLong(id);
+            User removedUser = users.remove(userId);
+            
+            if (removedUser == null) {
+                exchange.getIn().setHeader(Exchange.HTTP_RESPONSE_CODE, 404);
+                return "{\"message\":\"User not found\"}";
+            }
+            
+            exchange.getIn().setHeader(Exchange.HTTP_RESPONSE_CODE, 200);
+            return "{\"message\":\"User deleted successfully\"}";
+        } catch (NumberFormatException e) {
+            exchange.getIn().setHeader(Exchange.HTTP_RESPONSE_CODE, 400);
+            return "{\"message\":\"Invalid user ID\"}";
+        }
+    }
+}
+Subtask 2.2: Create REST Route Configuration
+Create the main route configuration with REST DSL:
+
+nano src/main/java/com/example/camel/RestRouteBuilder.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.rest.RestBindingMode;
+
+public class RestRouteBuilder extends RouteBuilder {
+    
+    @Override
+    public void configure() throws Exception {
+        
+        // Configure REST configuration
+        restConfiguration()
+            .component("jetty")
+            .host("0.0.0.0")
+            .port(8080)
+            .bindingMode(RestBindingMode.json)
+            .dataFormatProperty("prettyPrint", "true")
+            .enableCORS(true)
+            .corsHeaderProperty("Access-Control-Allow-Origin", "*")
+            .corsHeaderProperty("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+            .corsHeaderProperty("Access-Control-Allow-Headers", "Content-Type, Authorization");
+        
+        // Exception handling
+        onException(Exception.class)
+            .handled(true)
+            .setHeader("Content-Type", constant("application/json"))
+            .setBody(constant("{\"error\":\"Internal server error\"}"))
+            .setHeader("CamelHttpResponseCode", constant(500));
+        
+        // REST DSL definition
+        rest("/api/users")
+            .description("User REST service")
+            .consumes("application/json")
+            .produces("application/json")
+            
+            // GET all users
+            .get()
+                .description("Get all users")
+                .responseMessage().code(200).message("All users retrieved successfully").endResponseMessage()
+                .to("direct:getAllUsers")
+            
+            // GET user by ID
+            .get("/{id}")
+                .description("Get user by ID")
+                .param().name("id").type(RestParamType.path).description("User ID").dataType("integer").endParam()
+                .responseMessage().code(200).message("User found").endResponseMessage()
+                .responseMessage().code(404).message("User not found").endResponseMessage()
+                .to("direct:getUserById")
+            
+            // POST create new user
+            .post()
+                .description("Create new user")
+                .type(User.class)
+                .responseMessage().code(201).message("User created successfully").endResponseMessage()
+                .responseMessage().code(400).message("Invalid user data").endResponseMessage()
+                .to("direct:createUser")
+            
+            // PUT update user
+            .put("/{id}")
+                .description("Update user")
+                .param().name("id").type(RestParamType.path).description("User ID").dataType("integer").endParam()
+                .type(User.class)
+                .responseMessage().code(200).message("User updated successfully").endResponseMessage()
+                .responseMessage().code(404).message("User not found").endResponseMessage()
+                .responseMessage().code(400).message("Invalid user data").endResponseMessage()
+                .to("direct:updateUser")
+            
+            // DELETE user
+            .delete("/{id}")
+                .description("Delete user")
+                .param().name("id").type(RestParamType.path).description("User ID").dataType("integer").endParam()
+                .responseMessage().code(200).message("User deleted successfully").endResponseMessage()
+                .responseMessage().code(404).message("User not found").endResponseMessage()
+                .to("direct:deleteUser");
+        
+        // Route implementations
+        from("direct:getAllUsers")
+            .log("Getting all users")
+            .bean(UserService.class, "getAllUsers")
+            .setHeader("Content-Type", constant("application/json"));
+        
+        from("direct:getUserById")
+            .log("Getting user by ID: ${header.id}")
+            .bean(UserService.class, "getUserById")
+            .choice()
+                .when(body().isNull())
+                    .setHeader("CamelHttpResponseCode", constant(404))
+                    .setBody(constant("{\"error\":\"User not found\"}"))
+                .otherwise()
+                    .setHeader("CamelHttpResponseCode", constant(200))
+            .end()
+            .setHeader("Content-Type", constant("application/json"));
+        
+        from("direct:createUser")
+            .log("Creating new user: ${body}")
+            .bean(UserService.class, "createUser")
+            .setHeader("Content-Type", constant("application/json"));
+        
+        from("direct:updateUser")
+            .log("Updating user ID: ${header.id}")
+            .bean(UserService.class, "updateUser")
+            .choice()
+                .when(body().isNull())
+                    .setBody(constant("{\"error\":\"User not found or invalid data\"}"))
+                .otherwise()
+                    .log("User updated successfully")
+            .end()
+            .setHeader("Content-Type", constant("application/json"));
+        
+        from("direct:deleteUser")
+            .log("Deleting user ID: ${header.id}")
+            .bean(UserService.class, "deleteUser")
+            .setHeader("Content-Type", constant("application/json"));
+    }
+}
+Subtask 2.3: Create Main Application Class
+Create the main class to run the Camel application:
+
+nano src/main/java/com/example/camel/CamelRestApplication.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.main.Main;
+
+public class CamelRestApplication {
+    
+    public static void main(String[] args) throws Exception {
+        Main main = new Main();
+        
+        // Add route builder
+        main.addRouteBuilder(new RestRouteBuilder());
+        
+        // Add beans to registry
+        main.bind("userService", new UserService());
+        
+        // Configure main
+        main.configure().setDurationMaxMessages(0);
+        main.configure().setShutdownTimeout(10);
+        
+        System.out.println("Starting Camel REST API...");
+        System.out.println("REST API will be available at: http://localhost:8080/api/users");
+        System.out.println("Press Ctrl+C to stop the application");
+        
+        // Start and keep running
+        main.run(args);
+    }
+}
+Task 3: Building and Running the Application
+Subtask 3.1: Compile the Project
+Build the project using Maven:
+
+# Clean and compile
+mvn clean compile
+
+# Package the application
+mvn package
+Subtask 3.2: Run the Application
+Start the Camel REST application:
+
+# Run using Maven
+mvn exec:java -Dexec.mainClass="com.example.camel.CamelRestApplication"
+You should see output similar to:
+
+Starting Camel REST API...
+REST API will be available at: http://localhost:8080/api/users
+Press Ctrl+C to stop the application
+[main] INFO org.apache.camel.main.MainSupport - Apache Camel 3.20.0 starting
+[main] INFO org.eclipse.jetty.server.Server - jetty-9.4.48.v20220622; built: 2022-06-21T20:42:25.880Z; git: 6b67c5719d1f4371b33655ff2d047d24e171e49a; jvm 11.0.16+8-post-Ubuntu-0ubuntu120.04
+[main] INFO org.eclipse.jetty.server.AbstractConnector - Started ServerConnector@1234567{HTTP/1.1, (http/1.1)}{0.0.0.0:8080}
+[main] INFO org.eclipse.jetty.server.Server - Started @2345ms
+Task 4: Testing REST API Endpoints
+Subtask 4.1: Test GET Operations
+Test GET All Users
+# Get all users
+curl -X GET http://localhost:8080/api/users \
+  -H "Content-Type: application/json" \
+  -w "\nHTTP Status: %{http_code}\n"
+Expected response:
+
+[
+  {
+    "id": 1,
+    "name": "John Doe",
+    "email": "john@example.com",
+    "age": 30
+  },
+  {
+    "id": 2,
+    "name": "Jane Smith",
+    "email": "jane@example.com",
+    "age": 25
+  },
+  {
+    "id": 3,
+    "name": "Bob Johnson",
+    "email": "bob@example.com",
+    "age": 35
+  }
+]
+HTTP Status: 200
+Test GET User by ID
+# Get user by ID
+curl -X GET http://localhost:8080/api/users/1 \
+  -H "Content-Type: application/json" \
+  -w "\nHTTP Status: %{http_code}\n"
+Expected response:
+
+{
+  "id": 1,
+  "name": "John Doe",
+  "email": "john@example.com",
+  "age": 30
+}
+HTTP Status: 200
+Test GET Non-existent User
+# Get non-existent user
+curl -X GET http://localhost:8080/api/users/999 \
+  -H "Content-Type: application/json" \
+  -w "\nHTTP Status: %{http_code}\n"
+Expected response:
+
+{
+  "error": "User not found"
+}
+HTTP Status: 404
+Subtask 4.2: Test POST Operations
+Create New User
+# Create new user
+curl -X POST http://localhost:8080/api/users \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Alice Wilson",
+    "email": "alice@example.com",
+    "age": 28
+  }' \
+  -w "\nHTTP Status: %{http_code}\n"
+Expected response:
+
+{
+  "id": 4,
+  "name": "Alice Wilson",
+  "email": "alice@example.com",
+  "age": 28
+}
+HTTP Status: 201
+Test Invalid POST Data
+# Create user with missing name
+curl -X POST http://localhost:8080/api/users \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "invalid@example.com",
+    "age": 25
+  }' \
+  -w "\nHTTP Status: %{http_code}\n"
+Subtask 4.3: Test PUT Operations
+Update Existing User
+# Update user
+curl -X PUT http://localhost:8080/api/users/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Updated",
+    "email": "john.updated@example.com",
+    "age": 31
+  }' \
+  -w "\nHTTP Status: %{http_code}\n"
+Expected response:
+
+{
+  "id": 1,
+  "name": "John Updated",
+  "email": "john.updated@example.com",
+  "age": 31
+}
+HTTP Status: 200
+Test Update Non-existent User
+# Update non-existent user
+curl -X PUT http://localhost:8080/api/users/999 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Non Existent",
+    "email": "none@example.com",
+    "age": 25
+  }' \
+  -w "\nHTTP Status: %{http_code}\n"
+Subtask 4.4: Test DELETE Operations
+Delete Existing User
+# Delete user
+curl -X DELETE http://localhost:8080/api/users/2 \
+  -H "Content-Type: application/json" \
+  -w "\nHTTP Status: %{http_code}\n"
+Expected response:
+
+{
+  "message": "User deleted successfully"
+}
+HTTP Status: 200
+Test Delete Non-existent User
+# Delete non-existent user
+curl -X DELETE http://localhost:8080/api/users/999 \
+  -H "Content-Type: application/json" \
+  -w "\nHTTP Status: %{http_code}\n"
+Expected response:
+
+{
+  "message": "User not found"
+}
+HTTP Status: 404
+Verify Deletion
+# Verify user was deleted
+curl -X GET http://localhost:8080/api/users \
+  -H "Content-Type: application/json" \
+  -w "\nHTTP Status: %{http_code}\n"
+Task 5: Testing with Postman (Optional)
+Subtask 5.1: Import Collection
+If you prefer using Postman, create a new collection with the following requests:
+
+GET All Users
+
+Method: GET
+URL: http://localhost:8080/api/users
+Headers: Content-Type: application/json
+GET User by ID
+
+Method: GET
+URL: http://localhost:8080/api/users/1
+Headers: Content-Type: application/json
+POST Create User
+
+Method: POST
+URL: http://localhost:8080/api/users
+Headers: Content-Type: application/json
+Body (raw JSON):
+{
+  "name": "Test User",
+  "email": "test@example.com",
+  "age": 30
+}
+PUT Update User
+
+Method: PUT
+URL: http://localhost:8080/api/users/1
+Headers: Content-Type: application/json
+Body (raw JSON):
+{
+  "name": "Updated User",
+  "email": "updated@example.com",
+  "age": 35
+}
+DELETE User
+
+Method: DELETE
+URL: http://localhost:8080/api/users/1
+Headers: Content-Type: application/json
+Subtask 5.2: Test All Endpoints
+Run each request in Postman and verify:
+
+Correct HTTP status codes
+Proper JSON responses
+Error handling for invalid requests
+Task 6: Advanced Features and Error Handling
+Subtask 6.1: Add Input Validation
+Create a validation route to enhance error handling:
+
+nano src/main/java/com/example/camel/ValidationRoute.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class ValidationRoute extends RouteBuilder {
+    
+    @Override
+    public void configure() throws Exception {
+        
+        // Validation route for user creation
+        from("direct:validateUser")
+            .choice()
+                .when(simple("${body.name} == null || ${body.name} == ''"))
+                    .setHeader("CamelHttpResponseCode", constant(400))
+                    .setBody(constant("{\"error\":\"Name is required\"}"))
+                    .stop()
+                .when(simple("${body.email} == null || ${body.email} == ''"))
+                    .setHeader("CamelHttpResponseCode", constant(400))
+                    .setBody(constant("{\"error\":\"Email is required\"}"))
+                    .stop()
+                .when(simple("${body.age} == null || ${body.age} < 0"))
+                    .setHeader("CamelHttpResponseCode", constant(400))
+                    .setBody(constant("{\"error\":\"Valid age is required\"}"))
+                    .stop()
+            .end()
+            .log("User validation passed");
+    }
+}
+Subtask 6.2: Add Logging Configuration
+Create a logging configuration file:
+
+nano src/main/resources/simplelogger.properties
+Add the following content:
+
+# Simple Logger Configuration
+org.slf4j.simpleLogger.defaultLogLevel=info
+org.slf4j.simpleLogger.log.org.apache.camel=info
+org.slf4j.simpleLogger.log.com.example.camel=debug
+org.slf4j.simpleLogger.showDateTime=true
+org.slf4j.simpleLogger.dateTimeFormat=yyyy-MM-dd HH:mm:ss
+org.slf4j.simpleLogger.showThreadName=true
+org.slf4j.simpleLogger.showLogName=true
+org.slf4j.simpleLogger.showShortLogName=false
+Troubleshooting Common Issues
+Issue 1: Port Already in Use
+Problem: Error message "Address already in use"
+
+Solution:
+
+# Check what's using port 8080
+sudo netstat -tulpn | grep :8080
+
+# Kill the process if needed
+sudo kill -9 <process_id>
+
+# Or use a different port in RestRouteBuilder
+.port(8081)
+Issue 2: JSON Parsing Errors
+Problem: Invalid JSON format in requests
+
+Solution:
+
+Ensure JSON is properly formatted
+Use online JSON validators
+Check Content-Type header is set to application/json
+Issue 3: Maven Dependencies
+Problem: Missing dependencies or version conflicts
+
+Solution:
+
+# Clean and reinstall dependencies
+mvn clean install -U
+
+# Check dependency tree
+mvn dependency:tree
+Issue 4: Application Won't Start
+Problem: Application fails to start
+
+Solution:
+
+Check Java version: java -version
+Verify Maven version: mvn -version
+Check for syntax errors in Java files
+Review application logs for specific error messages
+Performance Testing
+Subtask 6.3: Load Testing with CURL
+Create a simple load test script:
+
+nano load_test.sh
+Add the following content:
+
+#!/bin/bash
+
+echo "Starting load test..."
+
+# Test GET requests
+for i in {1..10}; do
+    echo "GET Request $i"
+    curl -s -X GET http://localhost:8080/api/users > /dev/null &
+done
+
+# Test POST requests
+for i in {1..5}; do
+    echo "POST Request $i"
+    curl -s -X POST http://localhost:8080/api/users \
+      -H "Content-Type: application/json" \
+      -d "{\"name\":\"User$i\",\"email\":\"user$i@test.com\",\"age\":25}" > /dev/null &
+done
+
+wait
+echo "Load test completed"
+Make it executable and run:
+
+chmod +x load_test.sh
+./load_test.sh
+Conclusion
+Congratulations! You have successfully completed Lab 11: Exposing RESTful Services with Camel. In this comprehensive lab, you have accomplished the following:
+
+Key Achievements
+Created a Complete RESTful API: You built a fully functional REST API using Apache Camel's REST DSL with proper HTTP method implementations.
+
+Implemented CRUD Operations: You successfully implemented all four essential HTTP operations:
+
+GET: Retrieved all users and individual users by ID
+POST: Created new users with proper validation
+PUT: Updated existing users with error handling
+DELETE: Removed users with appropriate responses
+Mastered Camel REST DSL: You learned how to configure REST endpoints using Camel's declarative REST DSL, including:
+
+REST configuration with Jetty HTTP server
+JSON binding and serialization
+CORS support for web applications
+Parameter definitions and response messages
+Implemented Error Handling: You created robust error handling mechanisms including:
+
+HTTP status code management
+JSON error responses
+Input validation
+Exception handling
+Tested API Endpoints: You thoroughly tested your REST API using:
+
+CURL commands for command-line testing
+Postman for GUI-based testing
+Load testing for performance validation
+Why This Matters
+Understanding how to expose RESTful services with Apache Camel is crucial for modern integration scenarios because:
+
+Microservices Architecture: REST APIs are fundamental building blocks of microservices
+System Integration: RESTful services enable seamless integration between different systems
+Cloud-Native Applications: REST APIs are essential for cloud-native and containerized applications
+Enterprise Integration: Camel's REST DSL provides enterprise-grade features for production systems
+Next Steps
+With this foundation, you can now:
+
+Integrate your REST API with databases using Camel's database components
+Add security features like authentication and authorization
+Implement more complex business logic and data transformations
+Deploy your REST services to cloud platforms
+Scale your services using container orchestration platforms
+This lab has provided you with practical, hands-on experience in creating production-ready RESTful services using Apache Camel, preparing you for real-world integration challenges and cloud-native development scenarios.
