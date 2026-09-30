@@ -1,0 +1,5 @@
+com/example/camel/OrderConsumerRoute.class
+com/example/camel/Order.class
+com/example/camel/ErrorTestRoute.class
+com/example/camel/AsyncMessagingApplication.class
+com/example/camel/OrderProducerRoute.class
