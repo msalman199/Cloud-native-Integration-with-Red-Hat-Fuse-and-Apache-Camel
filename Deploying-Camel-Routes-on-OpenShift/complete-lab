@@ -1,0 +1,655 @@
+Lab 14: Deploying Camel Routes on OpenShift
+Objectives
+By the end of this lab, you will be able to:
+
+Deploy Apache Camel routes as containerized applications on OpenShift
+Configure horizontal pod autoscaling (HPA) for Camel route deployments
+Monitor deployment status and resource utilization
+Scale Camel routes dynamically based on demand
+Understand the integration between Apache Camel and OpenShift container orchestration
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Apache Camel concepts and route development
+Familiarity with containerization concepts (Docker)
+Basic knowledge of Kubernetes/OpenShift concepts (pods, deployments, services)
+Understanding of YAML configuration files
+Experience with command-line interfaces
+Required Tools
+OpenShift CLI (oc)
+Maven 3.6+
+Java 11 or higher
+Git
+Text editor or IDE
+Ready-to-Use Cloud Machines
+Al Nafi provides pre-configured Linux-based cloud machines with all necessary tools installed. Simply click Start Lab to access your environment. No need to build your own VM or install software manually.
+
+Lab Environment Setup
+Task 1: Verify Lab Environment and Tools
+Subtask 1.1: Access Your Cloud Machine
+Click the Start Lab button to access your pre-configured cloud machine
+Open a terminal window
+Verify that you're logged into the system:
+whoami
+pwd
+Subtask 1.2: Verify Required Tools
+Check OpenShift CLI installation:
+oc version
+Verify Maven installation:
+mvn --version
+Check Java version:
+java --version
+Verify Git installation:
+git --version
+Subtask 1.3: Login to OpenShift Cluster
+Login to your OpenShift cluster (credentials will be provided in your lab environment):
+oc login --server=https://your-openshift-cluster:6443 --username=developer --password=developer
+Create a new project for this lab:
+oc new-project camel-routes-lab
+Verify you're in the correct project:
+oc project
+Task 2: Create and Prepare Camel Routes for Deployment
+Subtask 2.1: Create a Sample Camel Application
+Create a new directory for your Camel project:
+mkdir ~/camel-openshift-demo
+cd ~/camel-openshift-demo
+Generate a new Camel Spring Boot project using Maven archetype:
+mvn archetype:generate \
+  -DgroupId=com.example.camel \
+  -DartifactId=camel-openshift-routes \
+  -DarchetypeGroupId=org.apache.camel.archetypes \
+  -DarchetypeArtifactId=camel-archetype-spring-boot \
+  -DarchetypeVersion=3.20.0 \
+  -Dversion=1.0.0 \
+  -Dpackage=com.example.camel \
+  -DinteractiveMode=false
+Navigate to the generated project:
+cd camel-openshift-routes
+Subtask 2.2: Configure the Camel Route
+Edit the main Camel route file:
+nano src/main/java/com/example/camel/MyRouteBuilder.java
+Replace the content with the following Camel route:
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.springframework.stereotype.Component;
+
+@Component
+public class MyRouteBuilder extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+        
+        // REST endpoint configuration
+        restConfiguration()
+            .component("servlet")
+            .port(8080)
+            .bindingMode(org.apache.camel.model.rest.RestBindingMode.json);
+
+        // REST API route
+        rest("/api")
+            .get("/health").to("direct:health")
+            .get("/process/{message}").to("direct:processMessage")
+            .post("/data").to("direct:processData");
+
+        // Health check route
+        from("direct:health")
+            .setBody(constant("{\"status\":\"UP\",\"service\":\"camel-route\"}"))
+            .setHeader("Content-Type", constant("application/json"));
+
+        // Message processing route
+        from("direct:processMessage")
+            .log("Processing message: ${header.message}")
+            .transform(simple("Processed: ${header.message} at ${date:now:yyyy-MM-dd HH:mm:ss}"))
+            .setHeader("Content-Type", constant("text/plain"));
+
+        // Data processing route with load simulation
+        from("direct:processData")
+            .log("Processing data: ${body}")
+            .process(exchange -> {
+                // Simulate some processing load
+                Thread.sleep(100);
+                String response = String.format(
+                    "{\"processed\":true,\"timestamp\":\"%s\",\"data\":\"%s\"}", 
+                    java.time.LocalDateTime.now(),
+                    exchange.getIn().getBody(String.class)
+                );
+                exchange.getIn().setBody(response);
+            })
+            .setHeader("Content-Type", constant("application/json"));
+
+        // Timer-based route for generating metrics
+        from("timer:metrics?period=30000")
+            .log("Generating metrics at ${date:now:yyyy-MM-dd HH:mm:ss}")
+            .setBody(constant("Metrics generated"));
+    }
+}
+Subtask 2.3: Update Project Dependencies
+Edit the pom.xml file to include necessary dependencies:
+nano pom.xml
+Add the following dependencies within the <dependencies> section:
+<dependency>
+    <groupId>org.apache.camel.springboot</groupId>
+    <artifactId>camel-servlet-starter</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.apache.camel.springboot</groupId>
+    <artifactId>camel-jackson-starter</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+Add the Fabric8 Maven plugin for OpenShift deployment in the <plugins> section:
+<plugin>
+    <groupId>io.fabric8</groupId>
+    <artifactId>fabric8-maven-plugin</artifactId>
+    <version>4.4.2</version>
+    <executions>
+        <execution>
+            <goals>
+                <goal>resource</goal>
+                <goal>build</goal>
+            </goals>
+        </execution>
+    </executions>
+</plugin>
+Subtask 2.4: Configure Application Properties
+Create application properties for different environments:
+nano src/main/resources/application.yml
+Add the following configuration:
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+camel:
+  springboot:
+    name: camel-openshift-routes
+  servlet:
+    mapping:
+      context-path: /camel/*
+
+logging:
+  level:
+    com.example.camel: INFO
+    org.apache.camel: INFO
+Task 3: Deploy Camel Routes in OpenShift as Pods
+Subtask 3.1: Build the Application
+Build the Camel application:
+mvn clean package -DskipTests
+Verify the build was successful:
+ls -la target/
+Subtask 3.2: Create OpenShift Deployment Configuration
+Create a directory for OpenShift resources:
+mkdir src/main/fabric8
+Create a deployment configuration file:
+nano src/main/fabric8/deployment.yml
+Add the following deployment configuration:
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camel-routes
+  labels:
+    app: camel-routes
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: camel-routes
+  template:
+    metadata:
+      labels:
+        app: camel-routes
+        version: v1
+    spec:
+      containers:
+      - name: camel-routes
+        image: camel-routes:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 8778
+          name: jolokia
+        env:
+        - name: JAVA_OPTIONS
+          value: "-Xmx256m -Xms128m"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+Subtask 3.3: Create Service Configuration
+Create a service configuration file:
+nano src/main/fabric8/service.yml
+Add the following service configuration:
+apiVersion: v1
+kind: Service
+metadata:
+  name: camel-routes-service
+  labels:
+    app: camel-routes
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  selector:
+    app: camel-routes
+  type: ClusterIP
+Subtask 3.4: Create Route for External Access
+Create a route configuration file:
+nano src/main/fabric8/route.yml
+Add the following route configuration:
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: camel-routes-route
+  labels:
+    app: camel-routes
+spec:
+  to:
+    kind: Service
+    name: camel-routes-service
+  port:
+    targetPort: http
+  wildcardPolicy: None
+Subtask 3.5: Deploy to OpenShift
+Use the Fabric8 Maven plugin to deploy:
+mvn fabric8:deploy
+Alternatively, you can build and deploy manually:
+# Build the container image
+mvn fabric8:build
+
+# Deploy to OpenShift
+mvn fabric8:resource fabric8:apply
+Monitor the deployment:
+oc get pods -w
+Check deployment status:
+oc get deployments
+oc describe deployment camel-routes
+Subtask 3.6: Verify Deployment
+Get the route URL:
+oc get routes
+Test the health endpoint:
+ROUTE_URL=$(oc get route camel-routes-route -o jsonpath='{.spec.host}')
+curl http://$ROUTE_URL/actuator/health
+Test the Camel REST endpoints:
+# Test health endpoint
+curl http://$ROUTE_URL/camel/api/health
+
+# Test message processing
+curl http://$ROUTE_URL/camel/api/process/HelloWorld
+
+# Test data processing
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"message":"test data"}' \
+  http://$ROUTE_URL/camel/api/data
+Task 4: Configure Scaling Policies for Camel Routes
+Subtask 4.1: Create Horizontal Pod Autoscaler (HPA)
+First, ensure metrics server is available (usually pre-installed in OpenShift):
+oc get pods -n openshift-monitoring | grep metrics
+Create an HPA configuration file:
+nano hpa-camel-routes.yml
+Add the following HPA configuration:
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: camel-routes-hpa
+  namespace: camel-routes-lab
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: camel-routes
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Max
+Apply the HPA configuration:
+oc apply -f hpa-camel-routes.yml
+Verify HPA creation:
+oc get hpa
+oc describe hpa camel-routes-hpa
+Subtask 4.2: Configure Resource Requests and Limits
+Update the deployment to ensure proper resource configuration:
+oc patch deployment camel-routes -p '{
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [{
+          "name": "camel-routes",
+          "resources": {
+            "requests": {
+              "memory": "256Mi",
+              "cpu": "100m"
+            },
+            "limits": {
+              "memory": "512Mi",
+              "cpu": "500m"
+            }
+          }
+        }]
+      }
+    }
+  }
+}'
+Verify the resource configuration:
+oc describe deployment camel-routes | grep -A 10 "Limits\|Requests"
+Subtask 4.3: Create Load Testing Script
+Create a load testing script to trigger scaling:
+nano load-test.sh
+Add the following script content:
+#!/bin/bash
+
+ROUTE_URL=$(oc get route camel-routes-route -o jsonpath='{.spec.host}')
+echo "Starting load test against: http://$ROUTE_URL"
+
+# Function to generate load
+generate_load() {
+    local endpoint=$1
+    local duration=$2
+    local concurrent=$3
+    
+    echo "Generating load for $duration seconds with $concurrent concurrent requests"
+    
+    for i in $(seq 1 $concurrent); do
+        (
+            end_time=$((SECONDS + duration))
+            while [ $SECONDS -lt $end_time ]; do
+                curl -s "http://$ROUTE_URL$endpoint" > /dev/null
+                sleep 0.1
+            done
+        ) &
+    done
+    
+    wait
+}
+
+# Test different endpoints
+echo "Phase 1: Light load"
+generate_load "/camel/api/health" 60 5
+
+echo "Phase 2: Medium load"
+generate_load "/camel/api/process/LoadTest" 120 10
+
+echo "Phase 3: Heavy load with data processing"
+for i in {1..20}; do
+    (
+        for j in {1..30}; do
+            curl -s -X POST -H "Content-Type: application/json" \
+              -d "{\"message\":\"load-test-$i-$j\"}" \
+              "http://$ROUTE_URL/camel/api/data" > /dev/null
+            sleep 0.05
+        done
+    ) &
+done
+
+wait
+echo "Load test completed"
+Make the script executable:
+chmod +x load-test.sh
+Task 5: Monitor Deployment Status and Scale Routes Dynamically
+Subtask 5.1: Monitor Current Status
+Check current pod count:
+oc get pods -l app=camel-routes
+Monitor HPA status:
+oc get hpa camel-routes-hpa -w
+Check resource utilization:
+oc top pods -l app=camel-routes
+Subtask 5.2: Execute Load Test and Monitor Scaling
+Open multiple terminal windows to monitor different aspects:
+Terminal 1 - Monitor Pods:
+
+watch -n 2 'oc get pods -l app=camel-routes'
+Terminal 2 - Monitor HPA:
+
+watch -n 5 'oc get hpa camel-routes-hpa'
+Terminal 3 - Monitor Resource Usage:
+
+watch -n 10 'oc top pods -l app=camel-routes'
+In a fourth terminal, run the load test:
+./load-test.sh
+Observe the scaling behavior in the monitoring terminals
+Subtask 5.3: Manual Scaling Operations
+Scale up manually:
+oc scale deployment camel-routes --replicas=5
+Verify the scaling:
+oc get pods -l app=camel-routes
+Scale down manually:
+oc scale deployment camel-routes --replicas=2
+Check that HPA takes over after manual scaling:
+oc describe hpa camel-routes-hpa
+Subtask 5.4: Monitor Application Logs
+View logs from all pods:
+oc logs -l app=camel-routes --tail=50 -f
+View logs from a specific pod:
+POD_NAME=$(oc get pods -l app=camel-routes -o jsonpath='{.items[0].metadata.name}')
+oc logs $POD_NAME -f
+Check application metrics:
+ROUTE_URL=$(oc get route camel-routes-route -o jsonpath='{.spec.host}')
+curl http://$ROUTE_URL/actuator/metrics
+Subtask 5.5: Create Custom Monitoring Dashboard
+Create a monitoring script:
+nano monitor-camel-routes.sh
+Add the following monitoring script:
+#!/bin/bash
+
+ROUTE_URL=$(oc get route camel-routes-route -o jsonpath='{.spec.host}')
+
+echo "=== Camel Routes Monitoring Dashboard ==="
+echo "Timestamp: $(date)"
+echo
+
+echo "=== Pod Status ==="
+oc get pods -l app=camel-routes -o wide
+
+echo
+echo "=== HPA Status ==="
+oc get hpa camel-routes-hpa
+
+echo
+echo "=== Resource Usage ==="
+oc top pods -l app=camel-routes 2>/dev/null || echo "Metrics not available yet"
+
+echo
+echo "=== Service Endpoints ==="
+echo "Health Check: curl http://$ROUTE_URL/actuator/health"
+echo "Camel Health: curl http://$ROUTE_URL/camel/api/health"
+echo "Process Message: curl http://$ROUTE_URL/camel/api/process/YourMessage"
+
+echo
+echo "=== Recent Events ==="
+oc get events --sort-by='.lastTimestamp' | grep camel-routes | tail -5
+
+echo
+echo "=== Deployment Status ==="
+oc rollout status deployment/camel-routes
+Make it executable and run:
+chmod +x monitor-camel-routes.sh
+./monitor-camel-routes.sh
+Subtask 5.6: Test Scaling Scenarios
+Scenario 1: CPU-based scaling
+# Generate CPU-intensive load
+for i in {1..10}; do
+    (
+        while true; do
+            curl -s "http://$ROUTE_URL/camel/api/process/CPUIntensiveTask" > /dev/null
+        done
+    ) &
+done
+
+# Monitor for 5 minutes then stop
+sleep 300
+pkill -f curl
+Scenario 2: Memory-based scaling
+# Generate memory-intensive requests
+for i in {1..20}; do
+    (
+        for j in {1..100}; do
+            curl -s -X POST -H "Content-Type: application/json" \
+              -d "{\"data\":\"$(head -c 1000 /dev/urandom | base64)\"}" \
+              "http://$ROUTE_URL/camel/api/data" > /dev/null
+            sleep 0.1
+        done
+    ) &
+done
+
+wait
+Scenario 3: Scale-down testing
+# Stop all load and wait for scale-down
+echo "Stopping load generation..."
+pkill -f curl
+echo "Waiting for scale-down (this may take 5+ minutes)..."
+watch -n 30 'oc get pods -l app=camel-routes'
+Troubleshooting Common Issues
+Issue 1: Pods Not Starting
+Symptoms: Pods stuck in Pending or CrashLoopBackOff state
+
+Solutions:
+
+# Check pod events
+oc describe pod <pod-name>
+
+# Check resource availability
+oc describe nodes
+
+# Verify image pull
+oc logs <pod-name>
+Issue 2: HPA Not Scaling
+Symptoms: HPA shows <unknown> for metrics
+
+Solutions:
+
+# Check metrics server
+oc get pods -n openshift-monitoring
+
+# Verify resource requests are set
+oc describe deployment camel-routes
+
+# Check HPA events
+oc describe hpa camel-routes-hpa
+Issue 3: Application Not Responding
+Symptoms: Curl requests timeout or return errors
+
+Solutions:
+
+# Check service endpoints
+oc get endpoints camel-routes-service
+
+# Verify route configuration
+oc describe route camel-routes-route
+
+# Check application logs
+oc logs -l app=camel-routes --tail=100
+Issue 4: Memory or CPU Issues
+Symptoms: Pods getting killed or restarted frequently
+
+Solutions:
+
+# Check resource usage
+oc top pods -l app=camel-routes
+
+# Adjust resource limits
+oc patch deployment camel-routes -p '{
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [{
+          "name": "camel-routes",
+          "resources": {
+            "limits": {
+              "memory": "1Gi",
+              "cpu": "1000m"
+            }
+          }
+        }]
+      }
+    }
+  }
+}'
+Cleanup
+Remove Lab Resources
+Delete the HPA:
+oc delete hpa camel-routes-hpa
+Delete the application:
+oc delete all -l app=camel-routes
+Delete the project:
+oc delete project camel-routes-lab
+Conclusion
+In this lab, you have successfully:
+
+Deployed Camel Routes as OpenShift Pods: You created a comprehensive Camel Spring Boot application with REST endpoints and deployed it as containerized pods in OpenShift, demonstrating how traditional integration patterns can be modernized for cloud-native environments.
+
+Configured Advanced Scaling Policies: You implemented Horizontal Pod Autoscaling (HPA) with both CPU and memory-based metrics, including sophisticated scaling behaviors that prevent rapid scaling oscillations and ensure stable performance.
+
+Monitored and Managed Dynamic Scaling: You created comprehensive monitoring solutions and tested various load scenarios to understand how OpenShift automatically scales your Camel routes based on demand, ensuring optimal resource utilization.
+
+Key Takeaways
+Cloud-Native Integration: Apache Camel routes can be seamlessly deployed and managed in OpenShift, providing enterprise-grade integration capabilities with cloud-native benefits like automatic scaling, health monitoring, and rolling updates.
+
+Intelligent Scaling: OpenShift's HPA provides sophisticated scaling capabilities that go beyond simple threshold-based scaling, including stabilization windows and multiple scaling policies that ensure stable and efficient resource management.
+
+Production Readiness: The combination of proper resource configuration, health checks, monitoring endpoints, and automated scaling makes your Camel routes production-ready for enterprise workloads.
+
+Operational Excellence: The monitoring and management capabilities you've implemented provide the visibility and control needed to operate integration services at scale in production environments.
+
+This lab demonstrates how modern integration platforms can leverage container orchestration to provide scalable, resilient, and manageable integration services that adapt automatically to changing business demands while maintaining high availability and performance standards.
