@@ -1,0 +1,818 @@
+Lab 12: Consuming External REST APIs with Camel
+Objectives
+By the end of this lab, you will be able to:
+
+Set up and configure Apache Camel routes to consume external REST APIs
+Use Camel's HTTP component to make REST API calls
+Process and transform JSON data received from external APIs
+Integrate API consumption into complete Camel routes
+Handle error scenarios and implement retry mechanisms
+Apply data transformation techniques to API responses
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Apache Camel concepts and routing
+Familiarity with REST APIs and HTTP methods
+Basic knowledge of JSON data format
+Understanding of Java programming fundamentals
+Experience with Maven build tool
+Familiarity with Linux command line operations
+Lab Environment Setup
+Ready-to-Use Cloud Machines: Al Nafi provides Linux-based cloud machines with all necessary tools pre-installed. Simply click Start Lab to access your environment - no need to build your own VM or install software.
+
+Your cloud machine includes:
+
+Apache Camel 3.20+
+Java 11+
+Maven 3.8+
+Text editors (nano, vim)
+curl for testing APIs
+Task 1: Set up a Route to Consume External REST API
+Subtask 1.1: Create the Project Structure
+First, let's create a new Maven project for our Camel REST API consumer.
+
+Open a terminal in your cloud machine
+Create a new directory for the project:
+mkdir camel-rest-consumer
+cd camel-rest-consumer
+Create the Maven project structure:
+mkdir -p src/main/java/com/example/camel
+mkdir -p src/main/resources
+Subtask 1.2: Create the Maven POM File
+Create the pom.xml file with necessary dependencies:
+
+nano pom.xml
+Add the following content:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>camel-rest-consumer</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <camel.version>3.20.0</camel.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- Camel Core -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel Main for standalone applications -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-main</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel HTTP component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-http</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel Jackson for JSON processing -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jackson</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel Timer component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-timer</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>1.7.36</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.camel</groupId>
+                <artifactId>camel-maven-plugin</artifactId>
+                <version>${camel.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Subtask 1.3: Create the Main Application Class
+Create the main application class:
+
+nano src/main/java/com/example/camel/RestConsumerApplication.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.main.Main;
+
+public class RestConsumerApplication {
+    
+    public static void main(String[] args) throws Exception {
+        Main main = new Main();
+        
+        // Add our route builder
+        main.addRouteBuilder(new RestConsumerRoute());
+        
+        // Start and keep the application running
+        main.run(args);
+    }
+}
+Subtask 1.4: Create the Basic REST Consumer Route
+Create the route builder class:
+
+nano src/main/java/com/example/camel/RestConsumerRoute.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.dataformat.JsonLibrary;
+
+public class RestConsumerRoute extends RouteBuilder {
+    
+    @Override
+    public void configure() throws Exception {
+        
+        // Route 1: Basic REST API consumption using JSONPlaceholder
+        from("timer://fetchPosts?period=30000&repeatCount=3")
+            .routeId("fetch-posts-route")
+            .log("Starting to fetch posts from external API...")
+            .to("https://jsonplaceholder.typicode.com/posts/1")
+            .log("Received response: ${body}")
+            .unmarshal().json(JsonLibrary.Jackson)
+            .log("Post Title: ${body[title]}")
+            .log("Post Body: ${body[body]}");
+            
+        // Route 2: Fetch multiple posts
+        from("timer://fetchMultiplePosts?period=45000&repeatCount=2")
+            .routeId("fetch-multiple-posts-route")
+            .log("Fetching multiple posts...")
+            .to("https://jsonplaceholder.typicode.com/posts?_limit=3")
+            .log("Received ${body.size()} posts")
+            .unmarshal().json(JsonLibrary.Jackson)
+            .split(body())
+            .log("Processing post: ${body[title]}");
+    }
+}
+Subtask 1.5: Test the Basic Setup
+Compile and run the application:
+mvn clean compile
+mvn camel:run
+Observe the output. You should see:
+
+Timer triggering every 30 seconds for single post
+Timer triggering every 45 seconds for multiple posts
+JSON responses being processed and logged
+Stop the application with Ctrl+C after observing the output.
+
+Task 2: Process and Transform the Data
+Subtask 2.1: Create Data Model Classes
+Let's create Java classes to represent our data models.
+
+Create a Post model class:
+nano src/main/java/com/example/camel/model/Post.java
+Add the following content:
+
+package com.example.camel.model;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class Post {
+    private int id;
+    private int userId;
+    private String title;
+    private String body;
+    
+    // Default constructor
+    public Post() {}
+    
+    // Constructor with parameters
+    public Post(int id, int userId, String title, String body) {
+        this.id = id;
+        this.userId = userId;
+        this.title = title;
+        this.body = body;
+    }
+    
+    // Getters and setters
+    public int getId() {
+        return id;
+    }
+    
+    public void setId(int id) {
+        this.id = id;
+    }
+    
+    public int getUserId() {
+        return userId;
+    }
+    
+    public void setUserId(int userId) {
+        this.userId = userId;
+    }
+    
+    public String getTitle() {
+        return title;
+    }
+    
+    public void setTitle(String title) {
+        this.title = title;
+    }
+    
+    public String getBody() {
+        return body;
+    }
+    
+    public void setBody(String body) {
+        this.body = body;
+    }
+    
+    @Override
+    public String toString() {
+        return "Post{" +
+                "id=" + id +
+                ", userId=" + userId +
+                ", title='" + title + '\'' +
+                ", body='" + body + '\'' +
+                '}';
+    }
+}
+Create a User model class:
+nano src/main/java/com/example/camel/model/User.java
+Add the following content:
+
+package com.example.camel.model;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class User {
+    private int id;
+    private String name;
+    private String username;
+    private String email;
+    private String phone;
+    private String website;
+    
+    // Default constructor
+    public User() {}
+    
+    // Getters and setters
+    public int getId() {
+        return id;
+    }
+    
+    public void setId(int id) {
+        this.id = id;
+    }
+    
+    public String getName() {
+        return name;
+    }
+    
+    public void setName(String name) {
+        this.name = name;
+    }
+    
+    public String getUsername() {
+        return username;
+    }
+    
+    public void setUsername(String username) {
+        this.username = username;
+    }
+    
+    public String getEmail() {
+        return email;
+    }
+    
+    public void setEmail(String email) {
+        this.email = email;
+    }
+    
+    public String getPhone() {
+        return phone;
+    }
+    
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+    
+    public String getWebsite() {
+        return website;
+    }
+    
+    public void setWebsite(String website) {
+        this.website = website;
+    }
+    
+    @Override
+    public String toString() {
+        return "User{" +
+                "id=" + id +
+                ", name='" + name + '\'' +
+                ", username='" + username + '\'' +
+                ", email='" + email + '\'' +
+                ", phone='" + phone + '\'' +
+                ", website='" + website + '\'' +
+                '}';
+    }
+}
+Subtask 2.2: Create Data Processor Classes
+Create a processor to transform and enrich the data:
+
+nano src/main/java/com/example/camel/processor/PostProcessor.java
+Add the following content:
+
+package com.example.camel.processor;
+
+import com.example.camel.model.Post;
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+
+public class PostProcessor implements Processor {
+    
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        Post post = exchange.getIn().getBody(Post.class);
+        
+        if (post != null) {
+            // Transform the title to uppercase
+            post.setTitle(post.getTitle().toUpperCase());
+            
+            // Truncate body if too long
+            if (post.getBody().length() > 50) {
+                post.setBody(post.getBody().substring(0, 50) + "...");
+            }
+            
+            // Add a custom header
+            exchange.getIn().setHeader("ProcessedAt", System.currentTimeMillis());
+            exchange.getIn().setHeader("PostId", post.getId());
+            
+            // Set the processed post back to the body
+            exchange.getIn().setBody(post);
+        }
+    }
+}
+Subtask 2.3: Create Enhanced Route with Data Processing
+Update the route builder to include data processing:
+
+nano src/main/java/com/example/camel/RestConsumerRoute.java
+Replace the content with:
+
+package com.example.camel;
+
+import com.example.camel.model.Post;
+import com.example.camel.model.User;
+import com.example.camel.processor.PostProcessor;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.dataformat.JsonLibrary;
+
+public class RestConsumerRoute extends RouteBuilder {
+    
+    @Override
+    public void configure() throws Exception {
+        
+        // Configure error handling
+        errorHandler(defaultErrorHandler()
+            .maximumRedeliveries(3)
+            .redeliveryDelay(2000)
+            .retryAttemptedLogLevel(org.apache.camel.LoggingLevel.WARN));
+        
+        // Route 1: Fetch and process single post
+        from("timer://fetchPost?period=30000&repeatCount=3")
+            .routeId("fetch-single-post")
+            .log("Fetching single post...")
+            .to("https://jsonplaceholder.typicode.com/posts/1")
+            .unmarshal().json(JsonLibrary.Jackson, Post.class)
+            .process(new PostProcessor())
+            .log("Processed Post: ${body}")
+            .log("Processing timestamp: ${header.ProcessedAt}");
+            
+        // Route 2: Fetch multiple posts and transform
+        from("timer://fetchPosts?period=45000&repeatCount=2")
+            .routeId("fetch-multiple-posts")
+            .log("Fetching multiple posts...")
+            .to("https://jsonplaceholder.typicode.com/posts?_limit=5")
+            .unmarshal().json(JsonLibrary.Jackson, Post[].class)
+            .split(body())
+            .process(new PostProcessor())
+            .choice()
+                .when(simple("${body.userId} == 1"))
+                    .log("Post by User 1: ${body.title}")
+                .otherwise()
+                    .log("Post by Other User: ${body.title}");
+                    
+        // Route 3: Fetch user data and combine with posts
+        from("timer://fetchUserAndPosts?period=60000&repeatCount=2")
+            .routeId("fetch-user-posts")
+            .log("Fetching user data...")
+            .setHeader("userId", constant(1))
+            .to("https://jsonplaceholder.typicode.com/users/1")
+            .unmarshal().json(JsonLibrary.Jackson, User.class)
+            .log("User: ${body.name} (${body.email})")
+            .setHeader("userName", simple("${body.name}"))
+            .setHeader("userEmail", simple("${body.email}"))
+            .log("Now fetching posts for user...")
+            .to("https://jsonplaceholder.typicode.com/posts?userId=1&_limit=3")
+            .unmarshal().json(JsonLibrary.Jackson, Post[].class)
+            .split(body())
+            .process(new PostProcessor())
+            .log("Post by ${header.userName}: ${body.title}");
+            
+        // Route 4: Error handling demonstration
+        from("timer://errorDemo?period=90000&repeatCount=1")
+            .routeId("error-handling-demo")
+            .log("Demonstrating error handling...")
+            .to("https://jsonplaceholder.typicode.com/posts/999999") // Non-existent post
+            .log("This should not be reached due to 404 error");
+    }
+}
+Subtask 2.4: Test the Enhanced Processing
+Run the enhanced application:
+mvn clean compile
+mvn camel:run
+Observe the enhanced output:
+
+Posts being transformed (uppercase titles, truncated bodies)
+User information being fetched and combined with posts
+Error handling in action for non-existent resources
+Headers being set and used in routing decisions
+Let the application run for a few minutes to see all routes execute.
+
+Task 3: Integrate API Call into Complete Camel Route
+Subtask 3.1: Create a File-Based Integration Route
+Let's create a more complex integration that reads configuration from files and writes results to output files.
+
+Create configuration directory:
+mkdir -p src/main/resources/config
+mkdir -p src/main/resources/output
+Create a configuration file for API endpoints:
+nano src/main/resources/config/api-config.properties
+Add the following content:
+
+# API Configuration
+api.base.url=https://jsonplaceholder.typicode.com
+api.posts.endpoint=/posts
+api.users.endpoint=/users
+api.comments.endpoint=/comments
+
+# Processing Configuration
+processing.batch.size=5
+processing.delay=10000
+output.directory=src/main/resources/output
+Create an advanced route builder:
+nano src/main/java/com/example/camel/AdvancedRestConsumerRoute.java
+Add the following content:
+
+package com.example.camel;
+
+import com.example.camel.model.Post;
+import com.example.camel.model.User;
+import com.example.camel.processor.PostProcessor;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.dataformat.JsonLibrary;
+
+public class AdvancedRestConsumerRoute extends RouteBuilder {
+    
+    @Override
+    public void configure() throws Exception {
+        
+        // Load properties
+        getContext().getPropertiesComponent().setLocation("classpath:config/api-config.properties");
+        
+        // Global error handler
+        errorHandler(defaultErrorHandler()
+            .maximumRedeliveries(3)
+            .redeliveryDelay(2000)
+            .onRedelivery(exchange -> {
+                log.warn("Retrying API call. Attempt: {}", 
+                    exchange.getIn().getHeader("CamelRedeliveryCounter"));
+            }));
+        
+        // Route 1: File-triggered API consumption
+        from("file:src/main/resources/input?noop=true&include=.*\\.txt")
+            .routeId("file-triggered-api-call")
+            .log("Processing file: ${header.CamelFileName}")
+            .convertBodyTo(String.class)
+            .split(body().tokenize("\n"))
+            .filter(simple("${body} != ''"))
+            .setHeader("postId", body())
+            .log("Fetching post ID: ${header.postId}")
+            .toD("{{api.base.url}}{{api.posts.endpoint}}/${header.postId}")
+            .unmarshal().json(JsonLibrary.Jackson, Post.class)
+            .process(new PostProcessor())
+            .marshal().json(JsonLibrary.Jackson)
+            .to("file:{{output.directory}}?fileName=processed-post-${header.postId}.json");
+            
+        // Route 2: Scheduled comprehensive data collection
+        from("timer://dataCollection?period={{processing.delay}}&repeatCount=2")
+            .routeId("comprehensive-data-collection")
+            .log("Starting comprehensive data collection...")
+            .multicast()
+            .parallelProcessing()
+            .to("direct:fetchUsers", "direct:fetchPosts", "direct:generateReport");
+            
+        // Sub-route: Fetch users
+        from("direct:fetchUsers")
+            .routeId("fetch-users-subroute")
+            .log("Fetching users...")
+            .to("{{api.base.url}}{{api.users.endpoint}}?_limit=3")
+            .unmarshal().json(JsonLibrary.Jackson, User[].class)
+            .split(body())
+            .log("User: ${body.name} - ${body.email}")
+            .marshal().json(JsonLibrary.Jackson)
+            .to("file:{{output.directory}}?fileName=user-${body.id}.json");
+            
+        // Sub-route: Fetch posts
+        from("direct:fetchPosts")
+            .routeId("fetch-posts-subroute")
+            .log("Fetching posts...")
+            .to("{{api.base.url}}{{api.posts.endpoint}}?_limit={{processing.batch.size}}")
+            .unmarshal().json(JsonLibrary.Jackson, Post[].class)
+            .split(body())
+            .process(new PostProcessor())
+            .marshal().json(JsonLibrary.Jackson)
+            .to("file:{{output.directory}}?fileName=post-${body.id}.json");
+            
+        // Sub-route: Generate report
+        from("direct:generateReport")
+            .routeId("generate-report-subroute")
+            .log("Generating summary report...")
+            .setBody(constant("Data Collection Report\n"))
+            .setBody(simple("${body}Timestamp: ${date:now:yyyy-MM-dd HH:mm:ss}\n"))
+            .setBody(simple("${body}Status: Data collection completed successfully\n"))
+            .setBody(simple("${body}Batch Size: {{processing.batch.size}}\n"))
+            .to("file:{{output.directory}}?fileName=report-${date:now:yyyyMMdd-HHmmss}.txt");
+            
+        // Route 3: REST endpoint aggregation
+        from("timer://aggregateData?period=120000&repeatCount=1")
+            .routeId("aggregate-user-posts")
+            .log("Starting user-posts aggregation...")
+            .setHeader("userId", constant(1))
+            .enrich("{{api.base.url}}{{api.users.endpoint}}/1", (original, resource) -> {
+                original.getIn().setHeader("userInfo", resource.getIn().getBody(String.class));
+                return original;
+            })
+            .enrich("{{api.base.url}}{{api.posts.endpoint}}?userId=1&_limit=3", (original, resource) -> {
+                original.getIn().setHeader("userPosts", resource.getIn().getBody(String.class));
+                return original;
+            })
+            .setBody(simple("{\n  \"user\": ${header.userInfo},\n  \"posts\": ${header.userPosts}\n}"))
+            .to("file:{{output.directory}}?fileName=user-posts-aggregated.json");
+    }
+}
+Subtask 3.2: Create Input Files for Testing
+Create input directory and test files:
+mkdir -p src/main/resources/input
+Create a test input file:
+nano src/main/resources/input/post-ids.txt
+Add the following content:
+
+1
+2
+3
+5
+10
+Subtask 3.3: Update Main Application
+Update the main application to use the advanced route:
+
+nano src/main/java/com/example/camel/RestConsumerApplication.java
+Replace the content with:
+
+package com.example.camel;
+
+import org.apache.camel.main.Main;
+
+public class RestConsumerApplication {
+    
+    public static void main(String[] args) throws Exception {
+        Main main = new Main();
+        
+        // Add route builders
+        main.addRouteBuilder(new RestConsumerRoute());
+        main.addRouteBuilder(new AdvancedRestConsumerRoute());
+        
+        // Configure main
+        main.configure().setDurationMaxMessages(50);
+        main.configure().setShutdownTimeout(30);
+        
+        System.out.println("Starting Camel REST Consumer Application...");
+        System.out.println("Check the output directory for generated files.");
+        
+        // Start and keep the application running
+        main.run(args);
+    }
+}
+Subtask 3.4: Test the Complete Integration
+Run the complete application:
+mvn clean compile
+mvn camel:run
+Monitor the output directory:
+# In another terminal
+watch -n 2 "ls -la src/main/resources/output/"
+Observe the integration:
+
+Files being processed from the input directory
+JSON files being created in the output directory
+Reports being generated
+User and post data being aggregated
+Check the generated files:
+
+ls -la src/main/resources/output/
+cat src/main/resources/output/report-*.txt
+cat src/main/resources/output/user-posts-aggregated.json
+Subtask 3.5: Add Monitoring and Health Checks
+Create a monitoring route:
+
+nano src/main/java/com/example/camel/MonitoringRoute.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class MonitoringRoute extends RouteBuilder {
+    
+    @Override
+    public void configure() throws Exception {
+        
+        // Health check route
+        from("timer://healthCheck?period=60000")
+            .routeId("health-check")
+            .log("Performing health check...")
+            .to("https://jsonplaceholder.typicode.com/posts/1")
+            .choice()
+                .when(header("CamelHttpResponseCode").isEqualTo(200))
+                    .log("✓ API Health Check: PASSED")
+                    .setBody(constant("API Status: HEALTHY\n"))
+                .otherwise()
+                    .log("✗ API Health Check: FAILED")
+                    .setBody(constant("API Status: UNHEALTHY\n"))
+            .end()
+            .setBody(simple("${body}Timestamp: ${date:now:yyyy-MM-dd HH:mm:ss}\n"))
+            .to("file:src/main/resources/output?fileName=health-check.log&fileExist=Append");
+            
+        // Performance monitoring
+        from("timer://performanceMonitor?period=30000")
+            .routeId("performance-monitor")
+            .log("Monitoring API performance...")
+            .setHeader("startTime", simple("${date:now:currentTimeMillis}"))
+            .to("https://jsonplaceholder.typicode.com/posts?_limit=1")
+            .setHeader("endTime", simple("${date:now:currentTimeMillis}"))
+            .setHeader("responseTime", simple("${header.endTime} - ${header.startTime}"))
+            .log("API Response Time: ${header.responseTime}ms")
+            .setBody(simple("Response Time: ${header.responseTime}ms at ${date:now:yyyy-MM-dd HH:mm:ss}\n"))
+            .to("file:src/main/resources/output?fileName=performance.log&fileExist=Append");
+    }
+}
+Update the main application to include monitoring:
+
+nano src/main/java/com/example/camel/RestConsumerApplication.java
+Add the monitoring route:
+
+package com.example.camel;
+
+import org.apache.camel.main.Main;
+
+public class RestConsumerApplication {
+    
+    public static void main(String[] args) throws Exception {
+        Main main = new Main();
+        
+        // Add all route builders
+        main.addRouteBuilder(new RestConsumerRoute());
+        main.addRouteBuilder(new AdvancedRestConsumerRoute());
+        main.addRouteBuilder(new MonitoringRoute());
+        
+        // Configure main
+        main.configure().setDurationMaxMessages(100);
+        main.configure().setShutdownTimeout(30);
+        
+        System.out.println("=== Camel REST Consumer Application ===");
+        System.out.println("Features:");
+        System.out.println("- Basic REST API consumption");
+        System.out.println("- Data processing and transformation");
+        System.out.println("- File-based integration");
+        System.out.println("- Health monitoring");
+        System.out.println("- Performance tracking");
+        System.out.println("Check the output directory for generated files.");
+        System.out.println("=======================================");
+        
+        // Start and keep the application running
+        main.run(args);
+    }
+}
+Testing and Validation
+Test the Complete Solution
+Run the final application:
+mvn clean compile
+mvn camel:run
+Verify all components are working:
+# Check output files
+ls -la src/main/resources/output/
+
+# View health check logs
+tail -f src/main/resources/output/health-check.log
+
+# View performance logs
+tail -f src/main/resources/output/performance.log
+
+# Check processed posts
+cat src/main/resources/output/processed-post-*.json
+Test error handling by temporarily disconnecting from the internet or modifying API URLs to invalid endpoints.
+Troubleshooting Tips
+Common Issues and Solutions
+Issue 1: Connection Timeout
+
+Symptom: Routes fail with connection timeout errors
+Solution: Increase timeout values in HTTP component configuration:
+.to("https://jsonplaceholder.typicode.com/posts/1?connectTimeout=10000&socketTimeout=10000")
+Issue 2: JSON Parsing Errors
+
+Symptom: Unmarshalling fails with JSON parsing exceptions
+Solution: Add error handling and validate JSON structure:
+.doTry()
+    .unmarshal().json(JsonLibrary.Jackson, Post.class)
+.doCatch(Exception.class)
+    .log("JSON parsing failed: ${exception.message}")
+    .setBody(constant("Invalid JSON received"))
+.end()
+Issue 3: File Permission Issues
+
+Symptom: Cannot write to output directory
+Solution: Check and fix directory permissions:
+chmod 755 src/main/resources/output/
+Issue 4: Maven Dependency Issues
+
+Symptom: ClassNotFoundException for Camel components
+Solution: Verify all dependencies are correctly added to pom.xml and run:
+mvn clean install
+Conclusion
+Congratulations! You have successfully completed Lab 12: Consuming External REST APIs with Camel. In this comprehensive lab, you have accomplished the following:
+
+What You Learned
+REST API Integration: You learned how to use Apache Camel's HTTP component to consume external REST APIs, including handling different HTTP methods and response formats.
+
+Data Processing and Transformation: You implemented custom processors to transform JSON data, created model classes for type-safe data handling, and applied business logic to API responses.
+
+Advanced Route Patterns: You explored complex integration patterns including:
+
+File-triggered API calls
+Multicast and parallel processing
+Content enrichment and aggregation
+Error handling and retry mechanisms
+Monitoring and Health Checks: You implemented monitoring routes to track API performance and health status, providing operational visibility into your integration.
+
+Configuration Management: You learned to externalize configuration using properties files, making your integration more maintainable and environment-specific.
+
+Why This Matters
+In today's interconnected world, consuming external APIs is a fundamental requirement for most enterprise applications. The skills you've developed in this lab are directly applicable to:
+
+Microservices Architecture: Integrating multiple services through REST APIs
+Data Synchronization: Keeping systems in sync by consuming external data sources
+Real-time Processing: Building responsive applications that react to external events
+Enterprise Integration: Connecting legacy systems with modern cloud-based APIs
+Key Takeaways
+Camel's HTTP Component provides robust capabilities for REST API consumption with built-in error handling and retry mechanisms
+Data transformation is crucial for adapting external API responses to your application's needs
+Monitoring and health checks are essential for production-ready integrations
+Configuration externalization makes your routes more flexible and maintainable
+Next Steps
+To further enhance your skills, consider exploring:
+
+OAuth2 authentication with external APIs
+Rate limiting and throttling

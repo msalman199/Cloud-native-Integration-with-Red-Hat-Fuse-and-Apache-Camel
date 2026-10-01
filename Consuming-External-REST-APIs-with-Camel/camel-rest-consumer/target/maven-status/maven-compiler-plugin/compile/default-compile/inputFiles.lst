@@ -1,0 +1,7 @@
+/home/centos/camel-rest-consumer/src/main/java/com/example/camel/AdvancedRestConsumerRoute.java
+/home/centos/camel-rest-consumer/src/main/java/com/example/camel/processor/PostProcessor.java
+/home/centos/camel-rest-consumer/src/main/java/com/example/camel/MonitoringRoute.java
+/home/centos/camel-rest-consumer/src/main/java/com/example/camel/RestConsumerRoute.java
+/home/centos/camel-rest-consumer/src/main/java/com/example/camel/model/Post.java
+/home/centos/camel-rest-consumer/src/main/java/com/example/camel/RestConsumerApplication.java
+/home/centos/camel-rest-consumer/src/main/java/com/example/camel/model/User.java
