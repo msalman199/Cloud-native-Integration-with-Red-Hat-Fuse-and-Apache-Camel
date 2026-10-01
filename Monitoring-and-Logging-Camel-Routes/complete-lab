@@ -1,0 +1,723 @@
+Lab 18: Monitoring and Logging Camel Routes
+Objectives
+By the end of this lab, you will be able to:
+
+Configure comprehensive logging for Apache Camel routes using SLF4J and Logback
+Implement JMX-based monitoring for Camel routes and endpoints
+Write a standalone Java tool that queries Camel JMX MBeans for route metrics
+Analyze log files and JMX metrics to identify performance bottlenecks
+Troubleshoot common Camel route issues using monitoring data
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Apache Camel concepts (routes, endpoints, processors)
+Familiarity with Java development and Maven build tool
+Knowledge of XML and Java configuration
+Understanding of logging frameworks (SLF4J, Logback)
+Basic knowledge of JMX (Java Management Extensions)
+Experience with command-line operations in Linux
+Your practice environment should have the following installed. If it does not, install them with:
+
+# Verify Java (OpenJDK 11 or later)
+java -version
+
+# Verify Maven (3.8+)
+mvn -version
+
+# If missing, on a Debian/Ubuntu-based system you can install with:
+sudo apt-get update
+sudo apt-get install -y openjdk-11-jdk maven
+This lab is self-contained and uses only local processes on localhost. No external network access or special privileges are required, making it safe to run in an isolated practice environment.
+
+Task 1: Set up Logging in Camel using SLF4J and Logback
+Subtask 1.1: Create a New Camel Project
+# Navigate to your workspace
+mkdir -p ~/workspace
+cd ~/workspace
+
+# Create a new Maven project
+mvn archetype:generate \
+  -DgroupId=com.alnafi.camel.monitoring \
+  -DartifactId=camel-monitoring-lab \
+  -DarchetypeArtifactId=maven-archetype-quickstart \
+  -DarchetypeVersion=1.4 \
+  -DinteractiveMode=false
+
+# Navigate to the project directory
+cd camel-monitoring-lab
+
+# Remove the archetype's sample test (it references code we are not keeping)
+rm -f src/test/java/com/alnafi/camel/monitoring/AppTest.java
+rm -f src/main/java/com/alnafi/camel/monitoring/App.java
+Subtask 1.2: Configure Maven Dependencies
+Replace the generated pom.xml with the following:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.alnafi.camel.monitoring</groupId>
+    <artifactId>camel-monitoring-lab</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <camel.version>3.20.2</camel.version>
+        <logback.version>1.2.12</logback.version>
+        <slf4j.version>1.7.36</slf4j.version>
+    </properties>
+
+    <dependencies>
+        <!-- Camel Core -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel Main for standalone applications -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-main</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel File component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-file</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel JMX management component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-management</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- SLF4J API -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+
+        <!-- Logback Classic (SLF4J implementation) -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
+        </dependency>
+
+        <!-- Logback Core -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-core</artifactId>
+            <version>${logback.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Deliverable: Run mvn -q validate from the project directory. It should complete with no output and exit code 0, confirming the POM is well-formed.
+
+Subtask 1.3: Configure Logback for Comprehensive Logging
+mkdir -p src/main/resources
+nano src/main/resources/logback.xml
+Add the following configuration:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- Console Appender -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- File Appender for General Logs -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/camel-application.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/camel-application.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- File Appender for Route Performance Logs -->
+    <appender name="ROUTE_PERFORMANCE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/route-performance.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/route-performance.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- File Appender for Error Logs -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/camel-errors.log</file>
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/camel-errors.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n%ex</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Logger for Camel Routes -->
+    <logger name="org.apache.camel" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+
+    <!-- Logger for Route Performance -->
+    <logger name="route.performance" level="INFO" additivity="false">
+        <appender-ref ref="ROUTE_PERFORMANCE"/>
+    </logger>
+
+    <!-- Logger for our application -->
+    <logger name="com.alnafi.camel.monitoring" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+
+    <!-- Root Logger -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+    </root>
+
+</configuration>
+Subtask 1.4: Create a Sample Camel Route with Logging
+mkdir -p src/main/java/com/alnafi/camel/monitoring
+nano src/main/java/com/alnafi/camel/monitoring/MonitoringCamelApplication.java
+Add the following code:
+
+package com.alnafi.camel.monitoring;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.main.Main;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class MonitoringCamelApplication {
+
+    private static final Logger logger = LoggerFactory.getLogger(MonitoringCamelApplication.class);
+    private static final Logger performanceLogger = LoggerFactory.getLogger("route.performance");
+
+    public static void main(String[] args) throws Exception {
+        logger.info("Starting Camel Monitoring Application...");
+
+        Main main = new Main();
+
+        main.addRouteBuilder(new FileProcessingRoute());
+        main.addRouteBuilder(new TimerRoute());
+        main.addRouteBuilder(new ErrorHandlingRoute());
+
+        main.configure().setJmxEnabled(true);
+
+        main.run(args);
+    }
+
+    static class FileProcessingRoute extends RouteBuilder {
+        private static final Logger routeLogger = LoggerFactory.getLogger(FileProcessingRoute.class);
+
+        @Override
+        public void configure() throws Exception {
+
+            from("timer://createDirs?period=1000&repeatCount=1")
+                .process(exchange -> {
+                    java.io.File inputDir = new java.io.File("data/input");
+                    java.io.File outputDir = new java.io.File("data/output");
+                    java.io.File errorDir = new java.io.File("data/error");
+
+                    inputDir.mkdirs();
+                    outputDir.mkdirs();
+                    errorDir.mkdirs();
+
+                    routeLogger.info("Created directories for file processing");
+                });
+
+            from("file://data/input?delay=5000&move=processed")
+                .routeId("file-processing-route")
+                .log("Processing file: ${header.CamelFileName}")
+                .process(new FileProcessor())
+                .choice()
+                    .when(header("fileSize").isGreaterThan(1000))
+                        .log("Large file detected: ${header.CamelFileName} (${header.fileSize} bytes)")
+                        .to("file://data/output?fileName=large-${header.CamelFileName}")
+                    .otherwise()
+                        .log("Small file processed: ${header.CamelFileName}")
+                        .to("file://data/output?fileName=small-${header.CamelFileName}")
+                .end()
+                .log("File processing completed for: ${header.CamelFileName}");
+        }
+    }
+
+    static class TimerRoute extends RouteBuilder {
+        private static final Logger timerLogger = LoggerFactory.getLogger(TimerRoute.class);
+
+        @Override
+        public void configure() throws Exception {
+            from("timer://testDataGenerator?period=15000")
+                .routeId("test-data-generator")
+                .process(exchange -> {
+                    String fileName = "test-file-" + System.currentTimeMillis() + ".txt";
+                    String content = "Test data generated at: " + new java.util.Date() + "\n";
+                    content += "Random number: " + Math.random() + "\n";
+
+                    exchange.getIn().setBody(content);
+                    exchange.getIn().setHeader(Exchange.FILE_NAME, fileName);
+
+                    timerLogger.info("Generated test file: {}", fileName);
+                })
+                .to("file://data/input");
+        }
+    }
+
+    static class ErrorHandlingRoute extends RouteBuilder {
+        private static final Logger errorLogger = LoggerFactory.getLogger(ErrorHandlingRoute.class);
+
+        @Override
+        public void configure() throws Exception {
+
+            errorHandler(deadLetterChannel("file://data/error")
+                .maximumRedeliveries(3)
+                .redeliveryDelay(2000)
+                .logRetryAttempted(true)
+                .logStackTrace(true));
+
+            from("timer://errorSimulator?period=20000")
+                .routeId("error-simulation-route")
+                .process(exchange -> {
+                    double random = Math.random();
+                    if (random < 0.3) {
+                        errorLogger.error("Simulated error occurred with random value: {}", random);
+                        throw new RuntimeException("Simulated processing error");
+                    }
+                    errorLogger.info("Processing completed successfully with random value: {}", random);
+                })
+                .log("Error simulation route completed successfully");
+        }
+    }
+
+    static class FileProcessor implements Processor {
+        private static final Logger processorLogger = LoggerFactory.getLogger(FileProcessor.class);
+
+        @Override
+        public void process(Exchange exchange) throws Exception {
+            long startTime = System.currentTimeMillis();
+
+            String fileName = exchange.getIn().getHeader(Exchange.FILE_NAME, String.class);
+            String body = exchange.getIn().getBody(String.class);
+
+            processorLogger.debug("Starting to process file: {}", fileName);
+
+            Thread.sleep(100 + (int) (Math.random() * 500));
+
+            int fileSize = body != null ? body.length() : 0;
+            exchange.getIn().setHeader("fileSize", fileSize);
+
+            String processedContent = "PROCESSED: " + body + "\nProcessed at: " + new java.util.Date();
+            exchange.getIn().setBody(processedContent);
+
+            long endTime = System.currentTimeMillis();
+            long processingTime = endTime - startTime;
+
+            performanceLogger.info("File: {}, Size: {} bytes, Processing Time: {} ms",
+                fileName, fileSize, processingTime);
+
+            processorLogger.info("Completed processing file: {} in {} ms", fileName, processingTime);
+        }
+    }
+}
+Subtask 1.5: Build and Test the Logging Setup
+mkdir -p logs
+
+# Compile the project
+mvn -q clean compile
+
+# Run the application in the background so we can inspect logs while it runs
+mvn -q exec:java -Dexec.mainClass="com.alnafi.camel.monitoring.MonitoringCamelApplication" &
+APP_PID=$!
+echo "Application started with PID: $APP_PID"
+
+# Let it run long enough to generate several log entries
+sleep 60
+
+# Stop the application
+kill $APP_PID
+wait $APP_PID 2>/dev/null
+Subtask 1.6: Examine the Generated Logs
+# Check the generated log files
+ls -la logs/
+
+# View the main application log
+tail -20 logs/camel-application.log
+
+# View performance logs
+cat logs/route-performance.log
+
+# Check for any errors (file exists even if empty due to the LevelFilter)
+cat logs/camel-errors.log
+Deliverable: logs/camel-application.log contains INFO-level entries from file-processing-route and test-data-generator, and logs/route-performance.log contains at least one line in the format File: <name>, Size: <n> bytes, Processing Time: <n> ms. If the 30 percent error chance triggered, logs/camel-errors.log contains a stack trace for RuntimeException: Simulated processing error.
+
+Task 2: Implement Route Monitoring with JMX
+Subtask 2.1: Enable JMX Management and Add a Metrics Route
+nano src/main/java/com/alnafi/camel/monitoring/JMXMonitoringApplication.java
+Add the following code:
+
+package com.alnafi.camel.monitoring;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.main.Main;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.management.MBeanServerConnection;
+import javax.management.ObjectName;
+import java.lang.management.ManagementFactory;
+import java.util.Set;
+
+public class JMXMonitoringApplication {
+
+    private static final Logger logger = LoggerFactory.getLogger(JMXMonitoringApplication.class);
+
+    public static void main(String[] args) throws Exception {
+        logger.info("Starting Camel JMX Monitoring Application...");
+
+        Main main = new Main();
+
+        // Configure JMX settings: enable local platform MBean registration
+        // and expose a remote JMX RMI connector on port 1099 for external tools.
+        main.configure().setJmxEnabled(true);
+        main.configure().setJmxCreateConnector(true);
+        main.configure().setJmxConnectorPort(1099);
+
+        main.addRouteBuilder(new MonitoredFileRoute());
+        main.addRouteBuilder(new PerformanceTestRoute());
+        main.addRouteBuilder(new JMXMetricsRoute());
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                logger.info("Shutting down Camel application...");
+                main.stop();
+            } catch (Exception e) {
+                logger.error("Error during shutdown", e);
+            }
+        }));
+
+        main.run(args);
+    }
+
+    static class MonitoredFileRoute extends RouteBuilder {
+        private static final Logger routeLogger = LoggerFactory.getLogger(MonitoredFileRoute.class);
+
+        @Override
+        public void configure() throws Exception {
+
+            from("timer://setupDirs?period=1000&repeatCount=1")
+                .process(exchange -> {
+                    java.io.File[] dirs = {
+                        new java.io.File("data/input"),
+                        new java.io.File("data/output"),
+                        new java.io.File("data/processed"),
+                        new java.io.File("data/error")
+                    };
+
+                    for (java.io.File dir : dirs) {
+                        dir.mkdirs();
+                    }
+                    routeLogger.info("Setup directories completed");
+                });
+
+            from("file://data/input?delay=3000&move=processed")
+                .routeId("monitored-file-route")
+                .log("Starting file processing: ${header.CamelFileName}")
+                .process(new TimedProcessor())
+                .choice()
+                    .when(header("processingTime").isGreaterThan(300))
+                        .log("SLOW processing detected: ${header.CamelFileName} took ${header.processingTime}ms")
+                        .to("file://data/output?fileName=slow-${header.CamelFileName}")
+                    .otherwise()
+                        .log("FAST processing: ${header.CamelFileName} took ${header.processingTime}ms")
+                        .to("file://data/output?fileName=fast-${header.CamelFileName}")
+                .end()
+                .log("Completed file processing: ${header.CamelFileName}");
+        }
+    }
+
+    static class PerformanceTestRoute extends RouteBuilder {
+        @Override
+        public void configure() throws Exception {
+            from("timer://performanceTest?period=8000")
+                .routeId("performance-test-route")
+                .process(exchange -> {
+                    StringBuilder content = new StringBuilder();
+                    int size = 100 + (int) (Math.random() * 2000);
+
+                    for (int i = 0; i < size; i++) {
+                        content.append((char) ('A' + (i % 26)));
+                    }
+
+                    String fileName = "perf-test-" + System.currentTimeMillis() + ".txt";
+                    exchange.getIn().setBody(content.toString());
+                    exchange.getIn().setHeader(Exchange.FILE_NAME, fileName);
+                })
+                .to("file://data/input");
+        }
+    }
+
+    static class JMXMetricsRoute extends RouteBuilder {
+        @Override
+        public void configure() throws Exception {
+            from("timer://jmxMetrics?period=15000&delay=10000")
+                .routeId("jmx-metrics-route")
+                .process(new JMXMetricsProcessor());
+        }
+    }
+
+    static class TimedProcessor implements Processor {
+        private static final Logger processorLogger = LoggerFactory.getLogger(TimedProcessor.class);
+
+        @Override
+        public void process(Exchange exchange) throws Exception {
+            long startTime = System.currentTimeMillis();
+
+            String fileName = exchange.getIn().getHeader(Exchange.FILE_NAME, String.class);
+            String body = exchange.getIn().getBody(String.class);
+
+            int processingDelay = 50 + (int) (Math.random() * 400);
+            Thread.sleep(processingDelay);
+
+            String processedContent = "PROCESSED AT: " + new java.util.Date() + "\n" +
+                    "ORIGINAL SIZE: " + (body != null ? body.length() : 0) + " bytes\n" +
+                    "CONTENT:\n" + body;
+
+            exchange.getIn().setBody(processedContent);
+
+            long endTime = System.currentTimeMillis();
+            long processingTime = endTime - startTime;
+
+            exchange.getIn().setHeader("processingTime", processingTime);
+
+            processorLogger.info("Processed {} in {}ms", fileName, processingTime);
+        }
+    }
+
+    static class JMXMetricsProcessor implements Processor {
+        private static final Logger metricsLogger = LoggerFactory.getLogger("jmx.metrics");
+
+        @Override
+        public void process(Exchange exchange) throws Exception {
+            try {
+                MBeanServerConnection server = ManagementFactory.getPlatformMBeanServer();
+
+                ObjectName camelContextName = new ObjectName("org.apache.camel:context=*,type=context,name=*");
+                Set<ObjectName> contextNames = server.queryNames(camelContextName, null);
+
+                for (ObjectName contextName : contextNames) {
+                    String contextId = (String) server.getAttribute(contextName, "CamelId");
+                    Long exchangesCompleted = (Long) server.getAttribute(contextName, "ExchangesCompleted");
+                    Long exchangesFailed = (Long) server.getAttribute(contextName, "ExchangesFailed");
+                    Long exchangesTotal = (Long) server.getAttribute(contextName, "ExchangesTotal");
+
+                    metricsLogger.info("Context: {} - Completed: {}, Failed: {}, Total: {}",
+                            contextId, exchangesCompleted, exchangesFailed, exchangesTotal);
+                }
+
+                ObjectName routeName = new ObjectName("org.apache.camel:context=*,type=routes,name=*");
+                Set<ObjectName> routeNames = server.queryNames(routeName, null);
+
+                for (ObjectName route : routeNames) {
+                    String routeId = (String) server.getAttribute(route, "RouteId");
+                    Long exchangesCompleted = (Long) server.getAttribute(route, "ExchangesCompleted");
+                    Long exchangesFailed = (Long) server.getAttribute(route, "ExchangesFailed");
+                    String state = (String) server.getAttribute(route, "State");
+
+                    if (exchangesCompleted > 0 || exchangesFailed > 0) {
+                        metricsLogger.info("Route: {} - State: {}, Completed: {}, Failed: {}",
+                                routeId, state, exchangesCompleted, exchangesFailed);
+                    }
+                }
+
+            } catch (Exception e) {
+                metricsLogger.error("Error collecting JMX metrics", e);
+            }
+        }
+    }
+}
+Deliverable: mvn -q compile succeeds with no errors.
+
+Subtask 2.2: Run the JMX-Enabled Application
+# Start the JMX monitoring application in the background
+mvn -q exec:java -Dexec.mainClass="com.alnafi.camel.monitoring.JMXMonitoringApplication" &
+JMX_APP_PID=$!
+echo "Application started with PID: $JMX_APP_PID"
+
+# Wait for the application and its JMX connector to start
+sleep 15
+
+# Confirm the JMX RMI connector port is listening
+ss -ltn | grep 1099 || echo "Port 1099 not yet listening, wait a few more seconds and retry"
+Deliverable: ss -ltn | grep 1099 shows a LISTEN entry on port 1099, confirming the JMX RMI connector started successfully.
+
+Subtask 2.3: Build a Custom JMX Monitoring Tool
+Create a standalone Java class that connects to the running application's platform MBean server (since it runs in the same JVM environment for this lab, we query it in-process using a second, short-lived instance is not possible for a truly separate JVM connection without RMI; instead we connect remotely over the JMX RMI connector we just enabled).
+
+nano src/main/java/com/alnafi/camel/monitoring/JMXMonitoringTool.java
+Add the following code:
+
+package com.alnafi.camel.monitoring;
+
+import javax.management.MBeanServerConnection;
+import javax.management.ObjectName;
+import javax.management.remote.JMXConnector;
+import javax.management.remote.JMXConnectorFactory;
+import javax.management.remote.JMXServiceURL;
+import java.util.Set;
+
+public class JMXMonitoringTool {
+
+    public static void main(String[] args) throws Exception {
+        String jmxUrl = "service:jmx:rmi:///jndi/rmi://localhost:1099/jmxrmi";
+
+        System.out.println("Connecting to JMX endpoint: " + jmxUrl);
+
+        JMXServiceURL url = new JMXServiceURL(jmxUrl);
+        try (JMXConnector connector = JMXConnectorFactory.connect(url)) {
+            MBeanServerConnection server = connector.getMBeanServerConnection();
+            monitorCamelRoutes(server);
+        } catch (Exception e) {
+            System.out.println("Connection failed. Make sure the JMXMonitoringApplication is running");
+            System.out.println("with JMX enabled on port 1099. Error: " + e.getMessage());
+        }
+    }
+
+    private static void monitorCamelRoutes(MBeanServerConnection server) throws Exception {
+        System.out.println("=== Camel Route Monitoring ===");
+
+        // Monitor Camel Context
+        ObjectName camelContextPattern = new ObjectName("org.apache.camel:context=*,type=context,name=*");
+        Set<ObjectName> contexts = server.queryNames(camelContextPattern, null);
+
+        System.out.println("\n--- Camel Contexts ---");
+        for (ObjectName context : contexts) {
+            String contextId = (String) server.getAttribute(context, "CamelId");
+            String state = (String) server.getAttribute(context, "State");
+            Long totalExchanges = (Long) server.getAttribute(context, "ExchangesTotal");
+            Long completedExchanges = (Long) server.getAttribute(context, "ExchangesCompleted");
+            Long failedExchanges = (Long) server.getAttribute(context, "ExchangesFailed");
+
+            System.out.printf("Context: %s, State: %s%n", contextId, state);
+            System.out.printf("  Total: %d, Completed: %d, Failed: %d%n",
+                    totalExchanges, completedExchanges, failedExchanges);
+        }
+
+        // Monitor individual routes
+        ObjectName routePattern = new ObjectName("org.apache.camel:context=*,type=routes,name=*");
+        Set<ObjectName> routes = server.queryNames(routePattern, null);
+
+        System.out.println("\n--- Camel Routes ---");
+        for (ObjectName route : routes) {
+            String routeId = (String) server.getAttribute(route, "RouteId");
+            String state = (String) server.getAttribute(route, "State");
+            Long exchangesCompleted = (Long) server.getAttribute(route, "ExchangesCompleted");
+            Long exchangesFailed = (Long) server.getAttribute(route, "ExchangesFailed");
+            Long meanProcessingTime = (Long) server.getAttribute(route, "MeanProcessingTime");
+
+            System.out.printf("RouteId: %s%n", routeId);
+            System.out.printf("  State: %s%n", state);
+            System.out.printf("  ExchangesCompleted: %d%n", exchangesCompleted);
+            System.out.printf("  ExchangesFailed: %d%n", exchangesFailed);
+            System.out.printf("  MeanProcessingTime: %d ms%n", meanProcessingTime);
+            System.out.println();
+        }
+
+        System.out.println("=== Monitoring snapshot complete ===");
+    }
+}
+Compile and run the tool while JMXMonitoringApplication is still running from Subtask 2.2:
+
+mvn -q compile
+
+mvn -q exec:java -Dexec.mainClass="com.alnafi.camel.monitoring.JMXMonitoringTool"
+Deliverable: The tool prints a === Camel Route Monitoring === header, a --- Camel Contexts --- section showing one context with a State of started, and a --- Camel Routes --- section listing monitored-file-route, performance-test-route, and jmx-metrics-route each with numeric ExchangesCompleted, ExchangesFailed, and MeanProcessingTime values.
+
+Subtask 2.4: Correlate JMX Metrics with Application Logs
+# Run the tool a second time after waiting, to see counters increase
+sleep 30
+mvn -q exec:java -Dexec.mainClass="com.alnafi.camel.monitoring.JMXMonitoringTool"
+
+# Compare against the jmx.metrics logger output captured in the running app's console,
+# and against the timed-processor log lines
+grep "jmx.metrics" logs/camel-application.log | tail -10 || true
+Deliverable: A second run of JMXMonitoringTool shows ExchangesCompleted values equal to or greater than the first run for monitored-file-route and performance-test-route, confirming that JMX metrics reflect real-time route activity.
+
+Subtask 2.5: Clean Up
+# Stop the JMX-enabled application
+kill $JMX_APP_PID
+wait $JMX_APP_PID 2>/dev/null
+
+# Confirm the process and port are no longer active
+ss -ltn | grep 1099 || echo "Port 1099 released successfully"
+
+# Optional: remove generated data files to reset the lab environment
+rm -rf data/input/* data/output/* data/processed/* data/error/* 2>/dev/null || true
+Deliverable: ss -ltn | grep 1099 returns nothing (or the fallback message prints), confirming the application shut down cleanly.
+
+Expected Outcomes
+A working Maven project producing rolling, level-filtered log files (camel-application.log, route-performance.log, camel-errors.log) driven entirely by Logback configuration
+A running Camel application exposing live JMX metrics over an RMI connector on port 1099
+A custom standalone JMX client (JMXMonitoringTool) that connects remotely and reports per-route state, completed/failed exchange counts, and mean processing time
+Troubleshooting
+Issue 1: JMXMonitoringTool reports a connection error such as "Connection refused" or "non-JRMP server at remote endpoint". Diagnostic hint: Confirm JMXMonitoringApplication is still running (jps -l should list it) and that ss -ltn | grep 1099 shows a listener before starting the tool; the RMI connector needs several seconds after startup to bind.
+
+Issue 2: No files appear in data/output or route metrics show zero completed exchanges. Diagnostic hint: Check that the data/input directory exists and that the timer-based generator routes (test-data-generator or performance-test-route) have fired at least once by searching the console output or logs/camel-application.log for their route IDs; the file component only picks up files after they are fully written and the configured delay has elapsed.
+
+Conclusion
+In this lab, you configured a layered Logback setup that separated general application logs, route performance metrics, and error-only logs for an Apache Camel application, then verified each log stream by driving traffic through file-processing, timer, and error-handling routes. You then enabled Camel's JMX management with a remote RMI connector and built a standalone JMXMonitoringTool that connects over JMX to query live CamelContext and route MBeans, reporting state, completed and failed exchange counts, and mean processing time. Together these two tasks demonstrated the two complementary pillars of production Camel observability: structured, file-based logging for historical analysis and troubleshooting, and JMX-based live metrics for real-time health checks and alerting. As a next step, consider extending the JMX tool to poll on an interval and export metrics to a time-series format, or wiring Logback's ERROR_FILE appender to trigger an external notification when new entries appear.
