@@ -1,0 +1,6 @@
+com/alnafi/camel/kafka/Order.class
+com/alnafi/camel/kafka/ManualOrderProducer.class
+com/alnafi/camel/kafka/CamelKafkaApplication.class
+com/alnafi/camel/kafka/OrderProducerRoute.class
+com/alnafi/camel/kafka/ResilientOrderConsumerRoute.class
+com/alnafi/camel/kafka/OrderConsumerRoute.class

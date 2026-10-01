@@ -1,0 +1,616 @@
+Lab 17: Integrating Camel with Apache Kafka for Event-Driven Architecture
+Objectives
+By the end of this lab, you will be able to:
+
+Set up Apache Kafka with Apache Camel for event-driven messaging
+Create producer-consumer patterns using Camel routes
+Implement real-time event processing with Camel-Kafka integration
+Understand the fundamentals of event-driven microservices architecture
+Configure and test Kafka topics with Camel components
+Monitor and troubleshoot Camel-Kafka integrations
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Java programming
+Familiarity with Apache Camel concepts and routing
+Knowledge of messaging patterns and event-driven architecture
+Understanding of Maven build tool
+Basic Linux command-line skills
+Required Software Knowledge:
+
+Apache Camel 3.x
+Apache Kafka 2.8+
+Java 11 or higher
+Maven 3.6+
+Ready-to-Use Cloud Machines
+Al Nafi provides pre-configured Linux-based cloud machines with all necessary tools installed. Simply click Start Lab to access your environment. No need to build your own VM or install software - everything is ready to use!
+
+Your cloud machine includes:
+
+Java 11 OpenJDK
+Apache Maven 3.8+
+Apache Kafka 2.8.1
+Apache Camel 3.18+
+Text editors (nano, vim)
+All required dependencies
+Task 1: Set up Kafka with Camel for Event-Driven Messaging
+Subtask 1.1: Start Kafka Services
+First, let's start the Kafka environment with ZooKeeper and Kafka server.
+
+Step 1: Open a terminal and start ZooKeeper service
+
+cd /opt/kafka
+bin/zookeeper-server-start.sh config/zookeeper.properties
+Step 2: Open a new terminal tab and start Kafka server
+
+cd /opt/kafka
+bin/kafka-server-start.sh config/server.properties
+Step 3: Verify Kafka is running by checking the process
+
+jps | grep -E "(Kafka|QuorumPeerMain)"
+You should see both ZooKeeper (QuorumPeerMain) and Kafka processes running.
+
+Subtask 1.2: Create Kafka Topics
+Step 1: Create a topic for order events
+
+cd /opt/kafka
+bin/kafka-topics.sh --create --topic order-events --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
+Step 2: Create a topic for processed orders
+
+bin/kafka-topics.sh --create --topic processed-orders --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
+Step 3: List all topics to verify creation
+
+bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+Subtask 1.3: Set up Maven Project Structure
+Step 1: Create a new Maven project directory
+
+mkdir -p ~/camel-kafka-lab
+cd ~/camel-kafka-lab
+Step 2: Create the Maven project structure
+
+mkdir -p src/main/java/com/alnafi/camel/kafka
+mkdir -p src/main/resources
+mkdir -p src/test/java
+Step 3: Create the pom.xml file
+
+nano pom.xml
+Add the following content:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <groupId>com.alnafi</groupId>
+    <artifactId>camel-kafka-integration</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <camel.version>3.18.4</camel.version>
+        <kafka.version>2.8.1</kafka.version>
+    </properties>
+    
+    <dependencies>
+        <!-- Camel Core -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Camel Kafka Component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-kafka</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Camel Jackson for JSON processing -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jackson</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Camel Timer Component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-timer</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>1.7.36</version>
+        </dependency>
+    </dependencies>
+    
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <mainClass>com.alnafi.camel.kafka.CamelKafkaApplication</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Step 4: Compile the project to verify dependencies
+
+mvn clean compile
+Task 2: Create a Producer-Consumer Pattern Using Camel Routes
+Subtask 2.1: Create Order Data Model
+Step 1: Create the Order POJO class
+
+nano src/main/java/com/alnafi/camel/kafka/Order.java
+Add the following content:
+
+package com.alnafi.camel.kafka;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+public class Order {
+    @JsonProperty("orderId")
+    private String orderId;
+    
+    @JsonProperty("customerId")
+    private String customerId;
+    
+    @JsonProperty("productName")
+    private String productName;
+    
+    @JsonProperty("quantity")
+    private int quantity;
+    
+    @JsonProperty("price")
+    private double price;
+    
+    @JsonProperty("timestamp")
+    private String timestamp;
+    
+    @JsonProperty("status")
+    private String status;
+    
+    public Order() {
+        this.timestamp = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        this.status = "PENDING";
+    }
+    
+    public Order(String orderId, String customerId, String productName, int quantity, double price) {
+        this();
+        this.orderId = orderId;
+        this.customerId = customerId;
+        this.productName = productName;
+        this.quantity = quantity;
+        this.price = price;
+    }
+    
+    // Getters and Setters
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+    
+    public String getCustomerId() { return customerId; }
+    public void setCustomerId(String customerId) { this.customerId = customerId; }
+    
+    public String getProductName() { return productName; }
+    public void setProductName(String productName) { this.productName = productName; }
+    
+    public int getQuantity() { return quantity; }
+    public void setQuantity(int quantity) { this.quantity = quantity; }
+    
+    public double getPrice() { return price; }
+    public void setPrice(double price) { this.price = price; }
+    
+    public String getTimestamp() { return timestamp; }
+    public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
+    
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    
+    @Override
+    public String toString() {
+        return String.format("Order{orderId='%s', customerId='%s', productName='%s', quantity=%d, price=%.2f, status='%s'}",
+                orderId, customerId, productName, quantity, price, status);
+    }
+}
+Subtask 2.2: Create Order Producer Route
+Step 1: Create the OrderProducerRoute class
+
+nano src/main/java/com/alnafi/camel/kafka/OrderProducerRoute.java
+Add the following content:
+
+package com.alnafi.camel.kafka;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.dataformat.JsonLibrary;
+import java.util.Random;
+
+public class OrderProducerRoute extends RouteBuilder {
+    
+    private final Random random = new Random();
+    private final String[] products = {"Laptop", "Smartphone", "Tablet", "Headphones", "Monitor"};
+    private final String[] customers = {"CUST001", "CUST002", "CUST003", "CUST004", "CUST005"};
+    
+    @Override
+    public void configure() throws Exception {
+        
+        // Route to generate and send orders to Kafka
+        from("timer:orderGenerator?period=5000")
+            .routeId("order-producer-route")
+            .log("Generating new order...")
+            .process(exchange -> {
+                // Create a random order
+                String orderId = "ORD" + System.currentTimeMillis();
+                String customerId = customers[random.nextInt(customers.length)];
+                String productName = products[random.nextInt(products.length)];
+                int quantity = random.nextInt(5) + 1;
+                double price = (random.nextDouble() * 1000) + 100;
+                
+                Order order = new Order(orderId, customerId, productName, quantity, price);
+                exchange.getIn().setBody(order);
+                exchange.getIn().setHeader("orderId", orderId);
+            })
+            .marshal().json(JsonLibrary.Jackson)
+            .log("Sending order to Kafka: ${body}")
+            .to("kafka:order-events?brokers=localhost:9092")
+            .log("Order sent successfully");
+    }
+}
+Subtask 2.3: Create Order Consumer and Processor Route
+Step 1: Create the OrderConsumerRoute class
+
+nano src/main/java/com/alnafi/camel/kafka/OrderConsumerRoute.java
+Add the following content:
+
+package com.alnafi.camel.kafka;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.dataformat.JsonLibrary;
+
+public class OrderConsumerRoute extends RouteBuilder {
+    
+    @Override
+    public void configure() throws Exception {
+        
+        // Route to consume orders from Kafka and process them
+        from("kafka:order-events?brokers=localhost:9092&groupId=order-processor-group")
+            .routeId("order-consumer-route")
+            .log("Received order from Kafka: ${body}")
+            .unmarshal().json(JsonLibrary.Jackson, Order.class)
+            .process(exchange -> {
+                Order order = exchange.getIn().getBody(Order.class);
+                
+                // Simulate order processing logic
+                log.info("Processing order: {}", order);
+                
+                // Calculate total amount
+                double totalAmount = order.getPrice() * order.getQuantity();
+                
+                // Apply business logic - discount for large orders
+                if (totalAmount > 500) {
+                    order.setPrice(order.getPrice() * 0.9); // 10% discount
+                    log.info("Applied 10% discount for large order");
+                }
+                
+                // Update order status
+                order.setStatus("PROCESSED");
+                
+                exchange.getIn().setBody(order);
+                exchange.getIn().setHeader("processedOrderId", order.getOrderId());
+            })
+            .log("Order processed: ${body}")
+            .marshal().json(JsonLibrary.Jackson)
+            .to("kafka:processed-orders?brokers=localhost:9092")
+            .log("Processed order sent to processed-orders topic");
+    }
+}
+Subtask 2.4: Create Main Application Class
+Step 1: Create the main application class
+
+nano src/main/java/com/alnafi/camel/kafka/CamelKafkaApplication.java
+Add the following content:
+
+package com.alnafi.camel.kafka;
+
+import org.apache.camel.CamelContext;
+import org.apache.camel.impl.DefaultCamelContext;
+
+public class CamelKafkaApplication {
+    
+    public static void main(String[] args) throws Exception {
+        
+        System.out.println("Starting Camel-Kafka Integration Application...");
+        
+        // Create Camel Context
+        CamelContext camelContext = new DefaultCamelContext();
+        
+        try {
+            // Add routes to context
+            camelContext.addRoutes(new OrderProducerRoute());
+            camelContext.addRoutes(new OrderConsumerRoute());
+            
+            // Start the context
+            camelContext.start();
+            
+            System.out.println("Camel Context started successfully!");
+            System.out.println("Order Producer Route: Generating orders every 5 seconds");
+            System.out.println("Order Consumer Route: Processing orders from Kafka");
+            System.out.println("Press Ctrl+C to stop the application");
+            
+            // Keep the application running
+            Thread.sleep(Long.MAX_VALUE);
+            
+        } catch (Exception e) {
+            System.err.println("Error starting Camel Context: " + e.getMessage());
+            e.printStackTrace();
+        } finally {
+            // Stop the context
+            camelContext.stop();
+            System.out.println("Camel Context stopped");
+        }
+    }
+}
+Task 3: Test Real-Time Event Processing with Camel-Kafka Integration
+Subtask 3.1: Build and Run the Application
+Step 1: Compile the project
+
+cd ~/camel-kafka-lab
+mvn clean compile
+Step 2: Run the Camel-Kafka application
+
+mvn exec:java -Dexec.mainClass="com.alnafi.camel.kafka.CamelKafkaApplication"
+You should see output similar to:
+
+Starting Camel-Kafka Integration Application...
+Camel Context started successfully!
+Order Producer Route: Generating orders every 5 seconds
+Order Consumer Route: Processing orders from Kafka
+Press Ctrl+C to stop the application
+Generating new order...
+Sending order to Kafka: {"orderId":"ORD1234567890","customerId":"CUST001",...}
+Order sent successfully
+Received order from Kafka: {"orderId":"ORD1234567890",...}
+Processing order: Order{orderId='ORD1234567890', customerId='CUST001',...}
+Order processed: {"orderId":"ORD1234567890","status":"PROCESSED",...}
+Processed order sent to processed-orders topic
+Subtask 3.2: Monitor Kafka Topics
+Step 1: Open a new terminal and monitor the order-events topic
+
+cd /opt/kafka
+bin/kafka-console-consumer.sh --topic order-events --from-beginning --bootstrap-server localhost:9092
+Step 2: Open another terminal and monitor the processed-orders topic
+
+cd /opt/kafka
+bin/kafka-console-consumer.sh --topic processed-orders --from-beginning --bootstrap-server localhost:9092
+Step 3: Verify message flow by observing:
+
+Raw orders being published to order-events topic
+Processed orders being published to processed-orders topic
+Business logic being applied (discounts for large orders)
+Subtask 3.3: Test Different Scenarios
+Step 1: Create a manual order producer for testing
+
+nano src/main/java/com/alnafi/camel/kafka/ManualOrderProducer.java
+Add the following content:
+
+package com.alnafi.camel.kafka;
+
+import org.apache.camel.CamelContext;
+import org.apache.camel.ProducerTemplate;
+import org.apache.camel.impl.DefaultCamelContext;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+public class ManualOrderProducer {
+    
+    public static void main(String[] args) throws Exception {
+        CamelContext camelContext = new DefaultCamelContext();
+        camelContext.start();
+        
+        ProducerTemplate producer = camelContext.createProducerTemplate();
+        ObjectMapper mapper = new ObjectMapper();
+        
+        try {
+            // Test Case 1: Small order (no discount)
+            Order smallOrder = new Order("TEST001", "CUST999", "Headphones", 1, 150.0);
+            String smallOrderJson = mapper.writeValueAsString(smallOrder);
+            producer.sendBody("kafka:order-events?brokers=localhost:9092", smallOrderJson);
+            System.out.println("Sent small order: " + smallOrderJson);
+            
+            Thread.sleep(2000);
+            
+            // Test Case 2: Large order (should get discount)
+            Order largeOrder = new Order("TEST002", "CUST999", "Laptop", 2, 800.0);
+            String largeOrderJson = mapper.writeValueAsString(largeOrder);
+            producer.sendBody("kafka:order-events?brokers=localhost:9092", largeOrderJson);
+            System.out.println("Sent large order: " + largeOrderJson);
+            
+            Thread.sleep(2000);
+            
+        } finally {
+            producer.stop();
+            camelContext.stop();
+        }
+    }
+}
+Step 2: Compile and run the manual producer
+
+mvn compile exec:java -Dexec.mainClass="com.alnafi.camel.kafka.ManualOrderProducer"
+Step 3: Verify the test orders are processed correctly by checking the consumer logs
+
+Subtask 3.4: Performance and Monitoring
+Step 1: Check Kafka topic details
+
+cd /opt/kafka
+bin/kafka-topics.sh --describe --topic order-events --bootstrap-server localhost:9092
+bin/kafka-topics.sh --describe --topic processed-orders --bootstrap-server localhost:9092
+Step 2: Monitor consumer group status
+
+bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group order-processor-group
+Step 3: Create a simple monitoring route (add to OrderConsumerRoute.java)
+
+// Add this route to OrderConsumerRoute class
+from("timer:stats?period=30000")
+    .routeId("monitoring-route")
+    .log("=== MONITORING STATS ===")
+    .log("Application running for: ${date:now}")
+    .log("Check Kafka consumer group status for detailed metrics");
+Subtask 3.5: Error Handling and Resilience
+Step 1: Add error handling to the consumer route
+
+nano src/main/java/com/alnafi/camel/kafka/ResilientOrderConsumerRoute.java
+Add the following content:
+
+package com.alnafi.camel.kafka;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.dataformat.JsonLibrary;
+
+public class ResilientOrderConsumerRoute extends RouteBuilder {
+    
+    @Override
+    public void configure() throws Exception {
+        
+        // Global error handler
+        errorHandler(deadLetterChannel("direct:error-handler")
+            .maximumRedeliveries(3)
+            .redeliveryDelay(2000)
+            .retryAttemptedLogLevel(org.apache.camel.LoggingLevel.WARN));
+        
+        // Main consumer route with error handling
+        from("kafka:order-events?brokers=localhost:9092&groupId=resilient-order-processor")
+            .routeId("resilient-order-consumer")
+            .log("Received order: ${body}")
+            .doTry()
+                .unmarshal().json(JsonLibrary.Jackson, Order.class)
+                .process(exchange -> {
+                    Order order = exchange.getIn().getBody(Order.class);
+                    
+                    // Simulate potential processing error
+                    if (order.getOrderId().contains("ERROR")) {
+                        throw new RuntimeException("Simulated processing error for order: " + order.getOrderId());
+                    }
+                    
+                    // Normal processing
+                    double totalAmount = order.getPrice() * order.getQuantity();
+                    if (totalAmount > 500) {
+                        order.setPrice(order.getPrice() * 0.9);
+                    }
+                    order.setStatus("PROCESSED");
+                    
+                    exchange.getIn().setBody(order);
+                })
+                .marshal().json(JsonLibrary.Jackson)
+                .to("kafka:processed-orders?brokers=localhost:9092")
+                .log("Successfully processed order: ${header.orderId}")
+            .doCatch(Exception.class)
+                .log("Error processing order: ${exception.message}")
+                .to("direct:error-handler")
+            .end();
+        
+        // Error handling route
+        from("direct:error-handler")
+            .routeId("error-handler")
+            .log("Processing failed order in error handler: ${body}")
+            .process(exchange -> {
+                // Log error details
+                Exception exception = exchange.getProperty(org.apache.camel.Exchange.EXCEPTION_CAUGHT, Exception.class);
+                log.error("Order processing failed: {}", exception.getMessage());
+                
+                // Could send to dead letter queue or alert system
+                exchange.getIn().setHeader("errorReason", exception.getMessage());
+            })
+            .to("kafka:failed-orders?brokers=localhost:9092")
+            .log("Failed order sent to failed-orders topic");
+    }
+}
+Step 2: Create the failed-orders topic
+
+cd /opt/kafka
+bin/kafka-topics.sh --create --topic failed-orders --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+Troubleshooting Tips
+Common Issues and Solutions
+Issue 1: Kafka Connection Refused
+
+# Check if Kafka is running
+jps | grep Kafka
+
+# Verify Kafka port is listening
+netstat -tlnp | grep 9092
+
+# Restart Kafka if needed
+cd /opt/kafka
+bin/kafka-server-stop.sh
+bin/kafka-server-start.sh config/server.properties
+Issue 2: Maven Compilation Errors
+
+# Clean and reinstall dependencies
+mvn clean install -U
+
+# Check Java version
+java -version
+mvn -version
+Issue 3: JSON Serialization Issues
+
+Ensure all Order class fields have proper getters/setters
+Verify Jackson annotations are correct
+Check for circular references in object models
+Issue 4: Consumer Group Not Processing Messages
+
+# Reset consumer group offset
+cd /opt/kafka
+bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group order-processor-group --reset-offsets --to-earliest --topic order-events --execute
+Issue 5: Memory Issues
+
+# Increase JVM heap size
+export MAVEN_OPTS="-Xmx1024m -Xms512m"
+mvn exec:java -Dexec.mainClass="com.alnafi.camel.kafka.CamelKafkaApplication"
+Conclusion
+Congratulations! You have successfully completed Lab 17: Integrating Camel with Apache Kafka for Event-Driven Architecture.
+
+What You Accomplished
+Set up Kafka Environment: You configured Apache Kafka with ZooKeeper and created topics for event-driven messaging
+Built Producer-Consumer Pattern: You implemented Camel routes that produce orders to Kafka and consume them for processing
+Implemented Business Logic: You added order processing logic including discount calculations and status updates
+Tested Real-Time Processing: You verified end-to-end message flow from producer to consumer through Kafka topics
+Added Error Handling: You implemented resilient patterns with retry logic and dead letter queues
+Monitored Integration: You learned to monitor Kafka topics, consumer groups, and application performance
+Why This Matters
+Event-driven architecture with Kafka and Camel provides:
+
+Scalability: Handle high-volume message processing across distributed systems
+Reliability: Ensure message delivery with Kafka's durability guarantees
+Flexibility: Easily add new consumers and processors without affecting producers
+Real-time Processing: Enable immediate response to business events
+Decoupling: Separate concerns between different microservices and components
+Next Steps
+To further enhance your skills:
+
+Explore Kafka Streams for complex event processing
+Implement schema registry for message evolution
+Add monitoring with Kafka Manager or Confluent Control Center
+Practice with different serialization formats (Avro, Protobuf)
+Implement exactly-once processing semantics
+Explore Camel's other enterprise integration patterns
+This lab has provided you with practical experience in building event-driven microservices using industry-standard tools, preparing you for real-world integration challenges in cloud-native environments.
