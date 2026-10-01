@@ -1,0 +1,377 @@
+Lab 13: Integrating Cloud-Native Services with Camel K
+Objectives
+By the end of this lab, you will be able to:
+
+Understand the fundamentals of Camel K and its role in cloud-native integration
+Set up and configure Camel K on a Kubernetes cluster
+Deploy Apache Camel routes as serverless functions using Camel K
+Create integration patterns using Camel K operators
+Monitor and manage Camel K deployments using Kubernetes-native tools
+Implement cloud-native integration patterns with automatic scaling capabilities
+Troubleshoot common Camel K deployment issues
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Apache Camel concepts and Enterprise Integration Patterns (EIP)
+Familiarity with Kubernetes concepts including pods, services, and deployments
+Basic knowledge of YAML configuration files
+Understanding of REST APIs and HTTP protocols
+Experience with command-line interfaces
+Knowledge of containerization concepts
+Ready-to-Use Cloud Machines
+Al Nafi provides pre-configured Linux-based cloud machines with all necessary tools installed. Simply click Start Lab to access your environment. Your machine includes:
+
+Kubernetes cluster (minikube or kind)
+kubectl command-line tool
+Camel K CLI (kamel)
+Java Development Kit (JDK 11+)
+Maven build tool
+curl and other networking utilities
+Text editors (nano, vim)
+No need to build your own VM or install additional software!
+
+Task 1: Set up Camel K on Kubernetes
+Subtask 1.1: Verify Kubernetes Cluster Status
+First, let's ensure your Kubernetes cluster is running properly.
+
+Open a terminal in your cloud machine
+Check the cluster status:
+kubectl cluster-info
+Verify nodes are ready:
+kubectl get nodes
+Check if all system pods are running:
+kubectl get pods -n kube-system
+Expected output should show all pods in Running status.
+
+Subtask 1.2: Install Camel K Operator
+The Camel K operator manages the lifecycle of Camel integrations in Kubernetes.
+
+Download and install the Camel K CLI:
+# Download the latest Camel K CLI
+curl -Lo kamel https://github.com/apache/camel-k/releases/download/v1.12.0/camel-k-client-1.12.0-linux-64bit.tar.gz
+
+# Extract and make executable
+tar -xzf camel-k-client-1.12.0-linux-64bit.tar.gz
+sudo mv kamel /usr/local/bin/
+chmod +x /usr/local/bin/kamel
+Verify the installation:
+kamel version
+Install the Camel K operator in your cluster:
+kamel install
+Wait for the operator to be ready:
+kubectl wait --for=condition=Ready pod -l name=camel-k-operator -n camel-k --timeout=300s
+Subtask 1.3: Verify Camel K Installation
+Check the Camel K operator status:
+kubectl get pods -n camel-k
+Verify the integration platform:
+kamel get platform
+The platform should show as Ready.
+
+Task 2: Deploy a Camel Route as a Serverless Function
+Subtask 2.1: Create a Simple REST API Integration
+Let's create a simple Camel route that exposes a REST API endpoint.
+
+Create a new directory for your integration files:
+mkdir ~/camel-k-lab
+cd ~/camel-k-lab
+Create your first Camel K integration file:
+cat > hello-api.java << 'EOF'
+// camel-k: language=java
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class HelloApi extends RouteBuilder {
+    @Override
+    public void configure() throws Exception {
+        
+        // REST configuration
+        restConfiguration()
+            .component("platform-http")
+            .port(8080);
+        
+        // REST endpoint definition
+        rest("/api")
+            .get("/hello")
+                .produces("application/json")
+                .to("direct:hello")
+            .get("/hello/{name}")
+                .produces("application/json")
+                .to("direct:hello-name");
+        
+        // Route for simple hello
+        from("direct:hello")
+            .setBody(constant("{\"message\": \"Hello from Camel K!\", \"timestamp\": \"${date:now:yyyy-MM-dd HH:mm:ss}\"}"))
+            .setHeader("Content-Type", constant("application/json"));
+        
+        // Route for personalized hello
+        from("direct:hello-name")
+            .setBody(simple("{\"message\": \"Hello ${header.name} from Camel K!\", \"timestamp\": \"${date:now:yyyy-MM-dd HH:mm:ss}\"}"))
+            .setHeader("Content-Type", constant("application/json"));
+    }
+}
+EOF
+Subtask 2.2: Deploy the Integration
+Deploy the integration using Camel K:
+kamel run hello-api.java --name hello-api
+Monitor the deployment progress:
+kamel logs hello-api
+Check the integration status:
+kamel get
+Wait until the integration shows Running status.
+
+Subtask 2.3: Test the Serverless Function
+Get the service information:
+kubectl get services
+Port-forward to access the service locally:
+kubectl port-forward service/hello-api 8080:80 &
+Test the REST endpoints:
+# Test simple hello endpoint
+curl http://localhost:8080/api/hello
+
+# Test personalized hello endpoint
+curl http://localhost:8080/api/hello/Student
+Expected responses:
+
+{"message": "Hello from Camel K!", "timestamp": "2024-01-15 10:30:45"}
+{"message": "Hello Student from Camel K!", "timestamp": "2024-01-15 10:30:50"}
+Subtask 2.4: Create a Data Processing Integration
+Now let's create a more complex integration that processes data.
+
+Create a file processing integration:
+cat > file-processor.java << 'EOF'
+// camel-k: language=java
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class FileProcessor extends RouteBuilder {
+    @Override
+    public void configure() throws Exception {
+        
+        // File processing route
+        from("timer:trigger?period=30000")
+            .setBody(constant("Processing batch at ${date:now:yyyy-MM-dd HH:mm:ss}"))
+            .log("${body}")
+            .to("direct:process-data");
+        
+        from("direct:process-data")
+            .transform(simple("Processed: ${body}"))
+            .log("Data processed: ${body}")
+            .to("log:file-processor?level=INFO");
+        
+        // Health check endpoint
+        from("platform-http:/health")
+            .setBody(constant("{\"status\": \"UP\", \"service\": \"file-processor\"}"))
+            .setHeader("Content-Type", constant("application/json"));
+    }
+}
+EOF
+Deploy the file processor:
+kamel run file-processor.java --name file-processor
+Monitor the logs to see the processing:
+kamel logs file-processor
+Task 3: Monitor and manage the Camel K deployment using Kubernetes tools
+Subtask 3.1: Monitor Integration Status
+View all running integrations:
+kamel get
+Get detailed information about a specific integration:
+kamel describe hello-api
+Check the underlying Kubernetes resources:
+kubectl get pods -l camel.apache.org/integration=hello-api
+kubectl get services -l camel.apache.org/integration=hello-api
+Subtask 3.2: Scale and Manage Integrations
+Scale the hello-api integration:
+kubectl scale deployment hello-api --replicas=3
+Verify the scaling:
+kubectl get pods -l camel.apache.org/integration=hello-api
+Check resource usage:
+kubectl top pods -l camel.apache.org/integration=hello-api
+Subtask 3.3: Configure Integration Properties
+Create a configuration file for your integration:
+cat > application.properties << 'EOF'
+# Application configuration
+greeting.message=Hello from Configured Camel K
+server.port=8080
+logging.level.org.apache.camel=INFO
+EOF
+Create a ConfigMap from the properties file:
+kubectl create configmap app-config --from-file=application.properties
+Create an enhanced integration that uses the configuration:
+cat > configured-api.java << 'EOF'
+// camel-k: language=java property=configmap:app-config
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class ConfiguredApi extends RouteBuilder {
+    @Override
+    public void configure() throws Exception {
+        
+        restConfiguration()
+            .component("platform-http")
+            .port("{{server.port}}");
+        
+        rest("/api/v2")
+            .get("/greeting")
+                .produces("application/json")
+                .to("direct:configured-greeting");
+        
+        from("direct:configured-greeting")
+            .setBody(simple("{\"message\": \"{{greeting.message}}\", \"version\": \"2.0\", \"timestamp\": \"${date:now:yyyy-MM-dd HH:mm:ss}\"}"))
+            .setHeader("Content-Type", constant("application/json"))
+            .log("Served configured greeting: ${body}");
+    }
+}
+EOF
+Deploy the configured integration:
+kamel run configured-api.java --name configured-api --property configmap:app-config
+Subtask 3.4: Monitor with Kubernetes Native Tools
+Create a monitoring script to watch your integrations:
+cat > monitor-integrations.sh << 'EOF'
+#!/bin/bash
+
+echo "=== Camel K Integration Status ==="
+kamel get
+
+echo -e "\n=== Pod Status ==="
+kubectl get pods -l app.kubernetes.io/component=integration
+
+echo -e "\n=== Service Status ==="
+kubectl get services -l camel.apache.org/integration
+
+echo -e "\n=== Resource Usage ==="
+kubectl top pods -l app.kubernetes.io/component=integration 2>/dev/null || echo "Metrics server not available"
+
+echo -e "\n=== Recent Events ==="
+kubectl get events --sort-by=.metadata.creationTimestamp | tail -10
+EOF
+
+chmod +x monitor-integrations.sh
+Run the monitoring script:
+./monitor-integrations.sh
+Set up continuous monitoring:
+watch -n 10 './monitor-integrations.sh'
+Press Ctrl+C to stop the monitoring.
+
+Subtask 3.5: Implement Health Checks and Observability
+Create an integration with comprehensive health checks:
+cat > health-integration.java << 'EOF'
+// camel-k: language=java
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class HealthIntegration extends RouteBuilder {
+    @Override
+    public void configure() throws Exception {
+        
+        // Health check endpoint
+        from("platform-http:/health")
+            .setBody(constant("{\"status\": \"UP\", \"checks\": {\"database\": \"UP\", \"external-service\": \"UP\"}}"))
+            .setHeader("Content-Type", constant("application/json"));
+        
+        // Metrics endpoint
+        from("platform-http:/metrics")
+            .setBody(simple("{\"requests\": ${exchangeProperty.CamelMessageHistory.size()}, \"uptime\": \"${date:now:yyyy-MM-dd HH:mm:ss}\"}"))
+            .setHeader("Content-Type", constant("application/json"));
+        
+        // Ready endpoint for Kubernetes readiness probe
+        from("platform-http:/ready")
+            .setBody(constant("{\"ready\": true}"))
+            .setHeader("Content-Type", constant("application/json"));
+        
+        // Main business logic
+        from("timer:business?period=60000")
+            .log("Business process executed at ${date:now}")
+            .to("log:business-metrics?level=INFO");
+    }
+}
+EOF
+Deploy with health checks:
+kamel run health-integration.java --name health-integration
+Test the health endpoints:
+# Port forward the service
+kubectl port-forward service/health-integration 8081:80 &
+
+# Test health endpoints
+curl http://localhost:8081/health
+curl http://localhost:8081/metrics
+curl http://localhost:8081/ready
+Subtask 3.6: Cleanup and Resource Management
+View all your integrations:
+kamel get
+Delete specific integrations:
+kamel delete hello-api
+kamel delete file-processor
+Clean up remaining resources:
+kubectl delete configmap app-config
+kubectl delete service --all
+Stop port forwarding processes:
+pkill -f "kubectl port-forward"
+Troubleshooting Common Issues
+Issue 1: Integration Fails to Start
+Symptoms: Integration shows Error status
+
+Solution:
+
+# Check integration logs
+kamel logs <integration-name>
+
+# Check pod events
+kubectl describe pod -l camel.apache.org/integration=<integration-name>
+
+# Verify operator status
+kubectl get pods -n camel-k
+Issue 2: Service Not Accessible
+Symptoms: Cannot reach REST endpoints
+
+Solution:
+
+# Check service status
+kubectl get services
+
+# Verify port forwarding
+kubectl port-forward service/<service-name> <local-port>:<service-port>
+
+# Check firewall rules
+curl -v http://localhost:<port>/api/health
+Issue 3: Resource Constraints
+Symptoms: Pods stuck in Pending status
+
+Solution:
+
+# Check node resources
+kubectl describe nodes
+
+# Check resource requests
+kubectl describe pod <pod-name>
+
+# Scale down if necessary
+kubectl scale deployment <deployment-name> --replicas=1
+Conclusion
+Congratulations! You have successfully completed Lab 13 on Integrating Cloud-Native Services with Camel K. Here's what you accomplished:
+
+Key Achievements
+Camel K Setup: You installed and configured Camel K operator on Kubernetes, establishing a cloud-native integration platform
+Serverless Integrations: You deployed Apache Camel routes as serverless functions that automatically scale based on demand
+REST API Development: You created REST APIs using Camel K that can handle HTTP requests and return JSON responses
+Configuration Management: You learned to externalize configuration using Kubernetes ConfigMaps
+Monitoring and Observability: You implemented health checks and monitoring using Kubernetes-native tools
+Resource Management: You practiced scaling, monitoring, and managing Camel K deployments
+Why This Matters
+Cloud-Native Integration: Camel K represents the evolution of enterprise integration into the cloud-native era. Unlike traditional integration platforms, Camel K:
+
+Scales Automatically: Integrations scale up and down based on actual demand
+Kubernetes Native: Leverages Kubernetes features like ConfigMaps, Secrets, and Services
+Developer Friendly: Allows developers to focus on integration logic rather than infrastructure
+Cost Effective: Pay only for what you use with serverless scaling
+Real-World Applications:
+
+Microservices Integration: Connect microservices in cloud-native architectures
+Event-Driven Processing: Handle events and messages in real-time
+API Gateway Patterns: Implement API composition and transformation
+Data Pipeline Automation: Process and transform data streams automatically
+Career Relevance: These skills are essential for modern integration developers working with:
+
+Red Hat Fuse and OpenShift
+Kubernetes-based integration platforms
+Cloud-native application development
+Enterprise integration architecture
+You now have hands-on experience with one of the most modern approaches to enterprise integration, positioning you well for cloud-native integration projects and certifications.
