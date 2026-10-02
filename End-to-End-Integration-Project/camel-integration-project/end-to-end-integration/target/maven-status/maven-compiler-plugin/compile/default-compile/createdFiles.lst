@@ -1,0 +1,3 @@
+com/alnafi/integration/config/RouteConfig.class
+com/alnafi/integration/routes/LoggingRoute.class
+com/alnafi/integration/model/Order.class

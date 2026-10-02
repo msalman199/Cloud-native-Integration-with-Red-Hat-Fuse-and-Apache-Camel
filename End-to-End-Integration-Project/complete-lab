@@ -1,0 +1,827 @@
+Lab 20: End-to-End Integration Project with Apache Camel
+Objectives
+By the end of this lab, students will be able to:
+
+Design and implement a multi-route integration solution using Apache Camel and Spring Boot
+Connect a REST API front end to a PostgreSQL database and an ActiveMQ message queue
+Consume an external HTTP API from a Camel route using externalized configuration
+Implement centralized logging routes for success and error handling across an integration flow
+Test and validate a complete order-processing workflow end to end
+Prerequisites
+Before starting this lab, students should have:
+
+Basic understanding of Java programming concepts
+Familiarity with REST API principles
+Basic knowledge of SQL databases
+Understanding of messaging concepts (queues, topics)
+Experience with Maven build tool
+Basic Linux command line skills
+Note: This lab is intended for an isolated, self-owned practice environment (a personal cloud VM or local machine). All systems used (PostgreSQL, ActiveMQ, and a mock HTTP API) are launched locally via Docker Compose for defensive, educational purposes only.
+
+The environment should have the following available. Install any that are missing:
+
+java -version
+mvn -version
+docker --version
+docker compose version
+If Docker Compose is not available as a plugin, install the standalone docker-compose binary for your distribution, or use docker compose (space, not hyphen) if using a recent Docker Engine.
+
+Lab Environment Setup
+Your machine should have:
+
+OpenJDK 11
+Apache Maven 3.8+
+Docker and Docker Compose
+A text editor or VS Code with Java extensions
+Task 1: Project Foundation and Backend Services
+Subtask 1.1: Initialize the Integration Project
+Create the main project directory:
+mkdir -p ~/camel-integration-project/end-to-end-integration
+cd ~/camel-integration-project/end-to-end-integration
+Create the standard Maven directory layout:
+mkdir -p src/main/java/com/alnafi/integration/model
+mkdir -p src/main/java/com/alnafi/integration/config
+mkdir -p src/main/java/com/alnafi/integration/routes
+mkdir -p src/main/resources
+Create pom.xml:
+cat > pom.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.alnafi.integration</groupId>
+    <artifactId>end-to-end-integration</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <camel.version>3.20.2</camel.version>
+        <spring.boot.version>2.7.8</spring.boot.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.apache.camel.springboot</groupId>
+                <artifactId>camel-spring-boot-bom</artifactId>
+                <version>${camel.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-spring-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-http-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-jdbc-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-jms-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-jackson-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-servlet-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.activemq</groupId>
+            <artifactId>activemq-client</artifactId>
+            <version>5.17.3</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-test-spring-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring.boot.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+EOF
+Deliverable: A pom.xml in ~/camel-integration-project/end-to-end-integration. Run mvn -q validate and confirm it exits with no errors.
+
+Subtask 1.2: Setup Backend Services with Docker Compose
+Create docker-compose.yml:
+cat > docker-compose.yml << 'EOF'
+version: '3.8'
+services:
+  postgres:
+    image: postgres:14
+    container_name: integration-postgres
+    environment:
+      POSTGRES_DB: integration_db
+      POSTGRES_USER: integration_user
+      POSTGRES_PASSWORD: integration_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+
+  activemq:
+    image: apache/activemq-classic:5.17.3
+    container_name: integration-activemq
+    ports:
+      - "61616:61616"
+      - "8161:8161"
+
+  mock-api:
+    image: mockserver/mockserver:5.14.0
+    container_name: integration-mockapi
+    ports:
+      - "1080:1080"
+
+volumes:
+  postgres_data:
+EOF
+Create the database initialization script:
+cat > init-db.sql << 'EOF'
+CREATE TABLE customers (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    phone VARCHAR(20),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE orders (
+    id SERIAL PRIMARY KEY,
+    customer_id INTEGER REFERENCES customers(id),
+    order_number VARCHAR(50) UNIQUE NOT NULL,
+    total_amount DECIMAL(10,2) NOT NULL,
+    status VARCHAR(20) DEFAULT 'PENDING',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE integration_logs (
+    id SERIAL PRIMARY KEY,
+    route_id VARCHAR(100),
+    message_id VARCHAR(100),
+    status VARCHAR(20),
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO customers (name, email, phone) VALUES
+('John Doe', 'john.doe@email.com', '+1-555-0101'),
+('Jane Smith', 'jane.smith@email.com', '+1-555-0102'),
+('Bob Johnson', 'bob.johnson@email.com', '+1-555-0103');
+
+INSERT INTO orders (customer_id, order_number, total_amount, status) VALUES
+(1, 'ORD-001', 299.99, 'PENDING'),
+(2, 'ORD-002', 149.50, 'PROCESSING'),
+(3, 'ORD-003', 89.99, 'COMPLETED');
+EOF
+Start backend services and verify:
+docker compose up -d
+docker compose ps
+Configure the mock API to respond on GET /external/status. MockServer accepts an "expectation" via its REST API on port 1080:
+curl -s -X PUT http://localhost:1080/mockserver/expectation \
+  -H "Content-Type: application/json" \
+  -d '[{
+    "httpRequest": {
+      "method": "GET",
+      "path": "/external/status"
+    },
+    "httpResponse": {
+      "statusCode": 200,
+      "headers": { "Content-Type": ["application/json"] },
+      "body": "{\"status\": \"ok\", \"system\": \"external-partner\"}"
+    }
+  }]'
+Deliverable: docker compose ps shows integration-postgres, integration-activemq, and integration-mockapi in an Up/running state. curl -s http://localhost:1080/external/status returns {"status": "ok", "system": "external-partner"}.
+
+Task 2: Application Configuration and Domain Model
+Subtask 2.1: Create Application Configuration
+Create application.yml:
+cat > src/main/resources/application.yml << 'EOF'
+server:
+  port: 8080
+
+spring:
+  application:
+    name: end-to-end-integration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/integration_db
+    username: integration_user
+    password: integration_pass
+    driver-class-name: org.postgresql.Driver
+
+camel:
+  springboot:
+    name: IntegrationCamelContext
+  component:
+    servlet:
+      mapping:
+        context-path: /api/*
+
+activemq:
+  broker-url: tcp://localhost:61616
+  user: admin
+  password: admin
+
+external:
+  api:
+    base-url: http://localhost:1080
+    timeout: 5000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,camel
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    org.apache.camel: INFO
+    com.alnafi.integration: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+EOF
+The external.api.base-url property is consumed directly by the ExternalStatusRoute created in Task 3, which polls the mock API's /external/status endpoint. This keeps the configuration tied to an actual, working route rather than left unused.
+
+Create the main Spring Boot application class:
+cat > src/main/java/com/alnafi/integration/IntegrationApplication.java << 'EOF'
+package com.alnafi.integration;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class IntegrationApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(IntegrationApplication.class, args);
+    }
+}
+EOF
+Deliverable: application.yml exists with the external.api.base-url property defined, and IntegrationApplication.java compiles cleanly (verified at the end of Task 2).
+
+Subtask 2.2: Create Data Models
+Create the Customer model:
+cat > src/main/java/com/alnafi/integration/model/Customer.java << 'EOF'
+package com.alnafi.integration.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public class Customer {
+    @JsonProperty("id")
+    private Long id;
+
+    @JsonProperty("name")
+    private String name;
+
+    @JsonProperty("email")
+    private String email;
+
+    @JsonProperty("phone")
+    private String phone;
+
+    public Customer() {}
+
+    public Customer(String name, String email, String phone) {
+        this.name = name;
+        this.email = email;
+        this.phone = phone;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
+
+    @Override
+    public String toString() {
+        return "Customer{id=" + id + ", name='" + name + "', email='" + email + "'}";
+    }
+}
+EOF
+Create the Order model:
+cat > src/main/java/com/alnafi/integration/model/Order.java << 'EOF'
+package com.alnafi.integration.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import java.math.BigDecimal;
+
+public class Order {
+    @JsonProperty("id")
+    private Long id;
+
+    @JsonProperty("customer_id")
+    private Long customerId;
+
+    @JsonProperty("order_number")
+    private String orderNumber;
+
+    @JsonProperty("total_amount")
+    private BigDecimal totalAmount;
+
+    @JsonProperty("status")
+    private String status;
+
+    public Order() {}
+
+    public Order(Long customerId, String orderNumber, BigDecimal totalAmount, String status) {
+        this.customerId = customerId;
+        this.orderNumber = orderNumber;
+        this.totalAmount = totalAmount;
+        this.status = status;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public Long getCustomerId() { return customerId; }
+    public void setCustomerId(Long customerId) { this.customerId = customerId; }
+
+    public String getOrderNumber() { return orderNumber; }
+    public void setOrderNumber(String orderNumber) { this.orderNumber = orderNumber; }
+
+    public BigDecimal getTotalAmount() { return totalAmount; }
+    public void setTotalAmount(BigDecimal totalAmount) { this.totalAmount = totalAmount; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+
+    @Override
+    public String toString() {
+        return "Order{id=" + id + ", customerId=" + customerId + ", orderNumber='" + orderNumber
+                + "', totalAmount=" + totalAmount + ", status='" + status + "'}";
+    }
+}
+EOF
+Create the messaging configuration bean (registers the ActiveMQ jms: Camel component):
+cat > src/main/java/com/alnafi/integration/config/MessagingConfig.java << 'EOF'
+package com.alnafi.integration.config;
+
+import org.apache.activemq.ActiveMQConnectionFactory;
+import org.apache.camel.component.jms.JmsComponent;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class MessagingConfig {
+
+    @Value("${activemq.broker-url}")
+    private String brokerUrl;
+
+    @Value("${activemq.user}")
+    private String username;
+
+    @Value("${activemq.password}")
+    private String password;
+
+    @Bean
+    public ActiveMQConnectionFactory connectionFactory() {
+        ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory();
+        connectionFactory.setBrokerURL(brokerUrl);
+        connectionFactory.setUserName(username);
+        connectionFactory.setPassword(password);
+        return connectionFactory;
+    }
+
+    @Bean
+    public JmsComponent jms(ActiveMQConnectionFactory connectionFactory) {
+        return JmsComponent.jmsComponentAutoAcknowledge(connectionFactory);
+    }
+}
+EOF
+Compile the project to confirm the model and configuration classes are valid:
+mvn -q compile
+Deliverable: mvn -q compile completes with no output and exit code 0, confirming Customer.java, Order.java, and MessagingConfig.java compile successfully.
+
+Task 3: Implement Integration Routes
+Subtask 3.1: Create the Logging Support Route
+Create a shared logging route used by every other route for centralized success/error handling:
+cat > src/main/java/com/alnafi/integration/routes/LoggingRoute.java << 'EOF'
+package com.alnafi.integration.routes;
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class LoggingRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        from("direct:logSuccess")
+            .routeId("logSuccess")
+            .setBody(simple("INSERT INTO integration_logs (route_id, message_id, status, error_message) "
+                + "VALUES ('${routeId}', '${exchangeId}', 'SUCCESS', NULL)"))
+            .to("jdbc:dataSource")
+            .log("Logged success for route ${exchangeProperty.CamelToEndpoint}");
+
+        from("direct:logError")
+            .routeId("logError")
+            .setBody(simple("INSERT INTO integration_logs (route_id, message_id, status, error_message) "
+                + "VALUES ('${routeId}', '${exchangeId}', 'ERROR', '${exception.message}')"))
+            .to("jdbc:dataSource")
+            .log("Logged error for route ${routeId}: ${exception.message}");
+    }
+}
+EOF
+Subtask 3.2: Create the Customer Integration Route
+Create the customer REST and processing route:
+cat > src/main/java/com/alnafi/integration/routes/CustomerIntegrationRoute.java << 'EOF'
+package com.alnafi.integration.routes;
+
+import com.alnafi.integration.model.Customer;
+import org.apache.camel.Exchange;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.dataformat.JsonLibrary;
+
+public class CustomerIntegrationRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        onException(Exception.class)
+            .handled(true)
+            .log("Error processing customer request: ${exception.message}")
+            .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(500))
+            .setBody(constant("{\"error\": \"Internal server error\"}"))
+            .to("direct:logError");
+
+        rest("/customers")
+            .consumes("application/json")
+            .produces("application/json")
+
+            .get()
+                .description("Get all customers")
+                .to("direct:getAllCustomers")
+
+            .get("/{id}")
+                .description("Get customer by ID")
+                .to("direct:getCustomerById")
+
+            .post()
+                .description("Create new customer")
+                .type(Customer.class)
+                .to("direct:createCustomer");
+
+        from("direct:getAllCustomers")
+            .routeId("getAllCustomers")
+            .log("Fetching all customers")
+            .setBody(simple("SELECT * FROM customers ORDER BY created_at DESC"))
+            .to("jdbc:dataSource")
+            .marshal().json(JsonLibrary.Jackson)
+            .to("direct:logSuccess");
+
+        from("direct:getCustomerById")
+            .routeId("getCustomerById")
+            .log("Fetching customer with ID: ${header.id}")
+            .setBody(simple("SELECT * FROM customers WHERE id = ${header.id}"))
+            .to("jdbc:dataSource")
+            .choice()
+                .when(simple("${body.size} == 0"))
+                    .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(404))
+                    .setBody(constant("{\"error\": \"Customer not found\"}"))
+                .otherwise()
+                    .marshal().json(JsonLibrary.Jackson)
+                    .to("direct:logSuccess")
+            .end();
+
+        from("direct:createCustomer")
+            .routeId("createCustomer")
+            .log("Creating new customer: ${body}")
+            .validate(simple("${body.name} != null && ${body.email} != null"))
+            .setProperty("customerData", body())
+            .setBody(simple("INSERT INTO customers (name, email, phone) VALUES "
+                + "('${exchangeProperty.customerData.name}', '${exchangeProperty.customerData.email}', "
+                + "'${exchangeProperty.customerData.phone}') RETURNING *"))
+            .to("jdbc:dataSource")
+            .marshal().json(JsonLibrary.Jackson)
+            .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(201))
+            .log("Customer created successfully")
+            .to("jms:queue:customer.created")
+            .to("direct:logSuccess");
+
+        from("jms:queue:customer.created")
+            .routeId("customerCreatedProcessor")
+            .log("Processing customer created event: ${body}")
+            .to("direct:notifyExternalSystem")
+            .to("direct:logSuccess");
+    }
+}
+EOF
+Subtask 3.3: Create the Order Integration Route
+Create the complete order processing route, including all workflow steps (processPayment, updateInventory, notifyExternalSystem, sendOrderConfirmation, processRefund):
+cat > src/main/java/com/alnafi/integration/routes/OrderIntegrationRoute.java << 'EOF'
+package com.alnafi.integration.routes;
+
+import com.alnafi.integration.model.Order;
+import org.apache.camel.Exchange;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.dataformat.JsonLibrary;
+
+public class OrderIntegrationRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        onException(Exception.class)
+            .handled(true)
+            .log("Error processing order request: ${exception.message}")
+            .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(500))
+            .setBody(constant("{\"error\": \"Internal server error\"}"))
+            .to("direct:logError");
+
+        rest("/orders")
+            .consumes("application/json")
+            .produces("application/json")
+
+            .get()
+                .description("Get all orders")
+                .to("direct:getAllOrders")
+
+            .get("/{id}")
+                .description("Get order by ID")
+                .to("direct:getOrderById")
+
+            .post()
+                .description("Create new order")
+                .type(Order.class)
+                .to("direct:createOrder")
+
+            .put("/{id}/status")
+                .description("Update order status")
+                .to("direct:updateOrderStatus");
+
+        from("direct:getAllOrders")
+            .routeId("getAllOrders")
+            .log("Fetching all orders")
+            .setBody(simple("SELECT o.*, c.name as customer_name FROM orders o "
+                + "LEFT JOIN customers c ON o.customer_id = c.id ORDER BY o.created_at DESC"))
+            .to("jdbc:dataSource")
+            .marshal().json(JsonLibrary.Jackson)
+            .to("direct:logSuccess");
+
+        from("direct:getOrderById")
+            .routeId("getOrderById")
+            .log("Fetching order with ID: ${header.id}")
+            .setBody(simple("SELECT o.*, c.name as customer_name FROM orders o "
+                + "LEFT JOIN customers c ON o.customer_id = c.id WHERE o.id = ${header.id}"))
+            .to("jdbc:dataSource")
+            .choice()
+                .when(simple("${body.size} == 0"))
+                    .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(404))
+                    .setBody(constant("{\"error\": \"Order not found\"}"))
+                .otherwise()
+                    .marshal().json(JsonLibrary.Jackson)
+                    .to("direct:logSuccess")
+            .end();
+
+        from("direct:createOrder")
+            .routeId("createOrder")
+            .log("Creating new order: ${body}")
+            .validate(simple("${body.customerId} != null && ${body.totalAmount} != null"))
+            .setProperty("orderData", body())
+            .setBody(simple("INSERT INTO orders (customer_id, order_number, total_amount, status) VALUES "
+                + "(${exchangeProperty.orderData.customerId}, '${exchangeProperty.orderData.orderNumber}', "
+                + "${exchangeProperty.orderData.totalAmount}, '${exchangeProperty.orderData.status}') RETURNING *"))
+            .to("jdbc:dataSource")
+            .marshal().json(JsonLibrary.Jackson)
+            .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(201))
+            .log("Order created successfully")
+            .to("jms:queue:order.created")
+            .to("direct:logSuccess");
+
+        from("direct:updateOrderStatus")
+            .routeId("updateOrderStatus")
+            .log("Updating order status for ID: ${header.id}")
+            .setProperty("newStatus", jsonpath("$.status"))
+            .setBody(simple("UPDATE orders SET status='${exchangeProperty.newStatus}', "
+                + "updated_at=CURRENT_TIMESTAMP WHERE id=${header.id} RETURNING *"))
+            .to("jdbc:dataSource")
+            .choice()
+                .when(simple("${body.size} == 0"))
+                    .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(404))
+                    .setBody(constant("{\"error\": \"Order not found\"}"))
+                .otherwise()
+                    .marshal().json(JsonLibrary.Jackson)
+                    .log("Order status updated successfully")
+                    .to("jms:queue:order.status.updated")
+                    .to("direct:logSuccess")
+            .end();
+
+        // Full order processing workflow, triggered after order creation
+        from("jms:queue:order.created")
+            .routeId("orderCreatedProcessor")
+            .log("Processing new order: ${body}")
+            .to("direct:processPayment")
+            .to("direct:updateInventory")
+            .to("direct:notifyExternalSystem")
+            .to("direct:logSuccess");
+
+        from("jms:queue:order.status.updated")
+            .routeId("orderStatusProcessor")
+            .log("Processing order status update: ${body}")
+            .choice()
+                .when(jsonpath("$[0].status == 'COMPLETED'"))
+                    .to("direct:sendOrderConfirmation")
+                .when(jsonpath("$[0].status == 'CANCELLED'"))
+                    .to("direct:processRefund")
+            .end()
+            .to("direct:logSuccess");
+
+        // Simulated payment authorization step with a short processing delay
+        from("direct:processPayment")
+            .routeId("processPayment")
+            .log("Authorizing payment for order")
+            .delay(1000)
+            .setBody(simple("Payment authorized for order"))
+            .log("Payment processed successfully");
+
+        // Simulated inventory decrement step
+        from("direct:updateInventory")
+            .routeId("updateInventory")
+            .log("Reserving inventory for order")
+            .delay(500)
+            .setBody(simple("Inventory reserved for order"))
+            .log("Inventory updated successfully");
+
+        // Notifies the external partner system via the mock API
+        from("direct:notifyExternalSystem")
+            .routeId("notifyExternalSystem")
+            .log("Notifying external system")
+            .setHeader(Exchange.HTTP_METHOD, constant("GET"))
+            .toD("{{external.api.base-url}}/external/status")
+            .log("External system responded: ${body}");
+
+        // Sends an order confirmation once status becomes COMPLETED
+        from("direct:sendOrderConfirmation")
+            .routeId("sendOrderConfirmation")
+            .log("Sending order confirmation to customer")
+            .setBody(simple("Order confirmation sent"))
+            .log("Order confirmation processed");
+
+        // Handles refund processing once status becomes CANCELLED
+        from("direct:processRefund")
+            .routeId("processRefund")
+            .log("Processing refund for cancelled order")
+            .delay(500)
+            .setBody(simple("Refund processed for order"))
+            .log("Refund processing complete");
+    }
+}
+EOF
+Register all routes and the JDBC data source in a single configuration class so Spring Boot picks them up:
+cat > src/main/java/com/alnafi/integration/config/RouteConfig.java << 'EOF'
+package com.alnafi.integration.config;
+
+import com.alnafi.integration.routes.CustomerIntegrationRoute;
+import com.alnafi.integration.routes.LoggingRoute;
+import com.alnafi.integration.routes.OrderIntegrationRoute;
+import org.apache.camel.component.jdbc.JdbcComponent;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import javax.sql.DataSource;
+
+@Configuration
+public class RouteConfig {
+
+    @Bean
+    public JdbcComponent jdbcComponent(DataSource dataSource) {
+        JdbcComponent jdbc = new JdbcComponent();
+        jdbc.setDataSource(dataSource);
+        return jdbc;
+    }
+
+    @Bean
+    public LoggingRoute loggingRoute() {
+        return new LoggingRoute();
+    }
+
+    @Bean
+    public CustomerIntegrationRoute customerIntegrationRoute() {
+        return new CustomerIntegrationRoute();
+    }
+
+    @Bean
+    public OrderIntegrationRoute orderIntegrationRoute() {
+        return new OrderIntegrationRoute();
+    }
+}
+EOF
+Note: the jdbc:dataSource Camel endpoint used throughout the routes resolves to this DataSource bean automatically because Camel's JDBC component looks up beans named dataSource in the Spring context by convention.
+
+Compile and package the application:
+mvn -q clean package -DskipTests
+Deliverable: The build produces target/end-to-end-integration-1.0.0.jar with no compilation errors. Run ls target/*.jar to confirm the artifact exists.
+
+Subtask 3.4: Run and Test the Integration
+Start the application (ensure Docker services from Task 1 are still running):
+java -jar target/end-to-end-integration-1.0.0.jar
+In a separate terminal, create a customer:
+curl -s -X POST http://localhost:8080/api/customers \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice Cooper", "email": "alice.cooper@email.com", "phone": "+1-555-0199"}'
+Expected: an HTTP 201 response body containing a JSON array with the new customer row, including a generated id.
+
+Create an order for that customer (use the id returned above as customer_id):
+curl -s -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id": 4, "order_number": "ORD-004", "total_amount": 199.99, "status": "PENDING"}'
+Expected: an HTTP 201 response with the created order row. Within a few seconds, the application log shows Processing new order, Authorizing payment for order, Reserving inventory for order, and External system responded: {"status": "ok", "system": "external-partner"}, confirming the JMS-triggered workflow and the external API integration both ran.
+
+Update the order status to COMPLETED:
+curl -s -X PUT http://localhost:8080/api/orders/4/status \
+  -H "Content-Type: application/json" \
+  -d '{"status": "COMPLETED"}'
+Expected: the log shows Processing order status update, followed by Sending order confirmation to customer and Order confirmation processed.
+
+Verify logging table entries directly in PostgreSQL:
+docker exec -it integration-postgres psql -U integration_user -d integration_db \
+  -c "SELECT route_id, status, created_at FROM integration_logs ORDER BY created_at DESC LIMIT 10;"
+Expected: rows with status = SUCCESS for routes such as createCustomer, createOrder, and updateOrderStatus.
+
+Deliverable: A running application that successfully creates a customer and order, processes the order through payment, inventory, and external notification steps, and records success entries in the integration_logs table.
+
+Expected Outcomes
+A working Spring Boot and Apache Camel application exposing REST endpoints for customers and orders backed by PostgreSQL
+An asynchronous order workflow triggered via ActiveMQ queues that performs payment, inventory, and external notification steps
+A verified integration with an external HTTP API (mock server) driven entirely by the external.api.base-url configuration property
+Centralized success and error logging persisted to the integration_logs table
+Troubleshooting
+Symptom: Application fails to start with a connection refused error mentioning port 5432 or 61616. Diagnostic hint: Confirm docker compose ps shows postgres and activemq as running, and that no other local process is already bound to those ports.
+Symptom: POST /api/orders succeeds but no workflow log lines appear afterward. Diagnostic hint: Check the ActiveMQ web console at http://localhost:8161 (default credentials are typically admin/admin) to confirm messages are arriving on the order.created queue, and check the application log level for com.alnafi.integration is set to DEBUG.
+Conclusion
+In this lab, students built a complete Apache Camel integration solution that connects a REST API layer, a PostgreSQL database, an ActiveMQ message broker, and an external HTTP service into a single cohesive workflow. The customer and order routes demonstrated request-response REST processing backed by JDBC, while the JMS-triggered routes showed how asynchronous, multi-step business processes such as payment authorization, inventory updates, and external notifications can be composed from simple Camel direct endpoints. By wiring the external.api.base-url configuration property into an active route and verifying results through application logs and the integration_logs table, students confirmed the entire pipeline works end to end rather than relying on unused configuration. This exercise reinforces core enterprise integration patterns, including content-based routing, centralized error handling, and event-driven processing, all of which are foundational to building and defending real-world integration platforms.

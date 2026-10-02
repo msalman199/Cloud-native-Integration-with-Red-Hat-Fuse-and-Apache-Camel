@@ -1,0 +1,45 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: end-to-end-integration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/integration_db
+    username: integration_user
+    password: integration_pass
+    driver-class-name: org.postgresql.Driver
+
+camel:
+  springboot:
+    name: IntegrationCamelContext
+  component:
+    servlet:
+      mapping:
+        context-path: /api/*
+
+activemq:
+  broker-url: tcp://localhost:61616
+  user: admin
+  password: admin
+
+external:
+  api:
+    base-url: http://localhost:1080
+    timeout: 5000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,camel
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    org.apache.camel: INFO
+    com.alnafi.integration: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"

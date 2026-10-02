@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:14
+    container_name: integration-postgres
+    environment:
+      POSTGRES_DB: integration_db
+      POSTGRES_USER: integration_user
+      POSTGRES_PASSWORD: integration_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+
+  activemq:
+    image: apache/activemq-classic:5.17.6
+    container_name: integration-activemq
+    ports:
+      - "61616:61616"
+      - "8161:8161"
+
+  mock-api:
+    image: mockserver/mockserver:5.14.0
+    container_name: integration-mockapi
+    ports:
+      - "1080:1080"
+
+volumes:
+  postgres_data:
+

@@ -1,0 +1,8 @@
+/home/centos/camel-integration-project/end-to-end-integration/src/main/java/com/alnafi/integration/routes/LoggingRoute.java
+/home/centos/camel-integration-project/end-to-end-integration/src/main/java/com/alnafi/integration/routes/OrderIntegrationRoute.java
+/home/centos/camel-integration-project/end-to-end-integration/src/main/java/com/alnafi/integration/config/RouteConfig.java
+/home/centos/camel-integration-project/end-to-end-integration/src/main/java/com/alnafi/integration/routes/CustomerIntegrationRoute.java
+/home/centos/camel-integration-project/end-to-end-integration/src/main/java/com/alnafi/integration/model/Order.java
+/home/centos/camel-integration-project/end-to-end-integration/src/main/java/com/alnafi/integration/model/Customer.java
+/home/centos/camel-integration-project/end-to-end-integration/src/main/java/com/alnafi/integration/config/MessagingConfig.java
+/home/centos/camel-integration-project/end-to-end-integration/src/main/java/com/alnafi/integration/IntegrationApplication.java
