@@ -1,0 +1,495 @@
+Lab: Implementing Basic Authentication and Data Encryption in Apache Camel Routes
+Objectives
+By the end of this lab, students will be able to:
+
+Implement HTTP Basic Authentication to secure Apache Camel REST routes using Spring Security
+Configure role-based authorization so different endpoints require different user roles
+Encrypt and decrypt sensitive data within a Camel route using AES encryption
+Test secured routes with curl to verify authentication, authorization, and data privacy
+Prerequisites
+Before starting this lab, students should have:
+
+Basic understanding of Apache Camel concepts and REST route building
+Familiarity with REST API concepts and HTTP protocols
+Basic knowledge of authentication and authorization principles
+Experience with the Maven build tool
+Basic Linux command-line skills
+Required Tools
+This lab assumes a Linux environment with the following installed. Verify each with the commands below; install any that are missing.
+
+# Verify Java 11+ is installed
+java -version
+
+# Verify Maven 3.6+ is installed
+mvn -version
+
+# Verify curl is installed
+curl --version
+If Java or Maven are missing, install them with your distribution's package manager, for example:
+
+sudo apt-get update
+sudo apt-get install -y openjdk-11-jdk maven
+Task 1: Build a Secure Camel Application with Basic Authentication
+Step 1.1: Create the Maven Project Structure
+cd ~
+mkdir -p secure-camel-routes/src/main/java/com/example/security
+mkdir -p secure-camel-routes/src/main/resources
+cd secure-camel-routes
+Step 1.2: Configure Maven Dependencies
+Create the pom.xml file:
+
+nano pom.xml
+Add the following content:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>secure-camel-routes</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <camel.version>3.20.2</camel.version>
+        <spring.boot.version>2.7.8</spring.boot.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.camel.springboot</groupId>
+                <artifactId>camel-spring-boot-dependencies</artifactId>
+                <version>${camel.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-spring-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-http-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-rest-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel.springboot</groupId>
+            <artifactId>camel-jackson-starter</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring.boot.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Step 1.3: Configure Application Properties
+nano src/main/resources/application.yml
+Add the following content:
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: secure-camel-routes
+
+camel:
+  springboot:
+    name: SecureCamelApp
+  rest:
+    component: servlet
+    binding-mode: json
+    data-format-property:
+      prettyPrint: true
+
+app:
+  security:
+    encryption:
+      key: MySecretKey12345
+
+logging:
+  level:
+    org.apache.camel: INFO
+    org.springframework.security: WARN
+    com.example: INFO
+The encryption.key value is exactly 16 characters, which is a valid AES-128 key length. AES requires the key byte length to be exactly 16, 24, or 32 bytes; using an arbitrary-length string will cause encryption to fail at runtime.
+
+Step 1.4: Create the Security Configuration
+This class defines two in-memory users (admin and user) and protects routes with role-based rules. Spring Security's httpBasic() filter validates the submitted password against the stored (BCrypt-encoded) password automatically â�� no custom password-checking code is needed or should be written.
+
+nano src/main/java/com/example/security/SecurityConfig.java
+package com.example.security;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public UserDetailsService userDetailsService() {
+        UserDetails admin = User.builder()
+                .username("admin")
+                .password(passwordEncoder().encode("admin123"))
+                .roles("ADMIN")
+                .build();
+
+        UserDetails user = User.builder()
+                .username("user")
+                .password(passwordEncoder().encode("user123"))
+                .roles("USER")
+                .build();
+
+        return new InMemoryUserDetailsManager(admin, user);
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf().disable()
+            .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            .and()
+            .authorizeHttpRequests(authz -> authz
+                .requestMatchers("/api/public/**").permitAll()
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/user/**").hasAnyRole("USER", "ADMIN")
+                .anyRequest().authenticated()
+            )
+            .httpBasic();
+
+        return http.build();
+    }
+}
+Deliverable for Step 1.4: The file src/main/java/com/example/security/SecurityConfig.java compiles and defines two users, admin and user, with distinct roles and BCrypt-encoded passwords.
+
+Step 1.5: Create the Main Application Class
+nano src/main/java/com/example/security/SecureCamelApplication.java
+package com.example.security;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class SecureCamelApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(SecureCamelApplication.class, args);
+    }
+}
+Step 1.6: Create the Camel Route with Public, User, and Admin Endpoints
+nano src/main/java/com/example/security/SecureRouteBuilder.java
+package com.example.security;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.rest.RestBindingMode;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SecureRouteBuilder extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        restConfiguration()
+            .component("servlet")
+            .bindingMode(RestBindingMode.json)
+            .dataFormatProperty("prettyPrint", "true");
+
+        rest("/api/public")
+            .get("/health")
+                .to("direct:health-check");
+
+        rest("/api/user")
+            .get("/profile")
+                .to("direct:user-profile");
+
+        rest("/api/admin")
+            .get("/users")
+                .to("direct:admin-users");
+
+        from("direct:health-check")
+            .setBody(constant("{\"status\": \"UP\"}"))
+            .log("Health check requested");
+
+        from("direct:user-profile")
+            .setBody(constant("{\"username\": \"user\", \"role\": \"USER\"}"))
+            .log("User profile requested");
+
+        from("direct:admin-users")
+            .setBody(constant("{\"users\": [\"admin\", \"user\"]}"))
+            .log("Admin users list requested");
+    }
+}
+Deliverable for Task 1: Build and run the application:
+
+mvn clean compile
+mvn spring-boot:run
+Wait until the console shows Tomcat started on port(s): 8080. In a second terminal, run:
+
+curl -s http://localhost:8080/api/public/health
+Expected output:
+
+{"status": "UP"}
+Then verify authentication and role enforcement:
+
+# No credentials: expect HTTP 401
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/api/user/profile
+
+# Correct user credentials: expect HTTP 200
+curl -s -u user:user123 http://localhost:8080/api/user/profile
+
+# User credentials against admin endpoint: expect HTTP 403
+curl -s -o /dev/null -w "%{http_code}\n" -u user:user123 http://localhost:8080/api/admin/users
+
+# Wrong password: expect HTTP 401
+curl -s -o /dev/null -w "%{http_code}\n" -u user:wrongpassword http://localhost:8080/api/user/profile
+
+# Admin credentials against admin endpoint: expect HTTP 200
+curl -s -u admin:admin123 http://localhost:8080/api/admin/users
+You should observe 401 for missing or wrong credentials, 403 for insufficient role, and 200 with the expected JSON body when credentials and role match. This confirms the password is genuinely being validated, not merely the username.
+
+Task 2: Encrypt Sensitive Data in a Camel Route
+Step 2.1: Create the Encryption Service
+This service uses AES/CBC/PKCS5Padding with a random initialization vector (IV) prepended to the ciphertext, so each encryption call produces different output even for identical input.
+
+nano src/main/java/com/example/security/EncryptionService.java
+package com.example.security;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Base64;
+
+@Service
+public class EncryptionService {
+
+    @Value("${app.security.encryption.key}")
+    private String encryptionKey;
+
+    private static final String TRANSFORMATION = "AES/CBC/PKCS5Padding";
+    private static final int IV_LENGTH = 16;
+
+    public String encrypt(String plainText) {
+        try {
+            SecretKeySpec secretKey = new SecretKeySpec(encryptionKey.getBytes(StandardCharsets.UTF_8), "AES");
+
+            byte[] iv = new byte[IV_LENGTH];
+            new SecureRandom().nextBytes(iv);
+            IvParameterSpec ivSpec = new IvParameterSpec(iv);
+
+            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, ivSpec);
+
+            byte[] cipherText = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
+
+            byte[] encryptedWithIv = new byte[IV_LENGTH + cipherText.length];
+            System.arraycopy(iv, 0, encryptedWithIv, 0, IV_LENGTH);
+            System.arraycopy(cipherText, 0, encryptedWithIv, IV_LENGTH, cipherText.length);
+
+            return Base64.getEncoder().encodeToString(encryptedWithIv);
+        } catch (Exception e) {
+            throw new RuntimeException("Error encrypting data", e);
+        }
+    }
+
+    public String decrypt(String encryptedText) {
+        try {
+            byte[] encryptedWithIv = Base64.getDecoder().decode(encryptedText);
+
+            byte[] iv = new byte[IV_LENGTH];
+            System.arraycopy(encryptedWithIv, 0, iv, 0, IV_LENGTH);
+            IvParameterSpec ivSpec = new IvParameterSpec(iv);
+
+            byte[] cipherText = new byte[encryptedWithIv.length - IV_LENGTH];
+            System.arraycopy(encryptedWithIv, IV_LENGTH, cipherText, 0, cipherText.length);
+
+            SecretKeySpec secretKey = new SecretKeySpec(encryptionKey.getBytes(StandardCharsets.UTF_8), "AES");
+            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec);
+
+            byte[] plainText = cipher.doFinal(cipherText);
+            return new String(plainText, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new RuntimeException("Error decrypting data", e);
+        }
+    }
+}
+Deliverable for Step 2.1: The file compiles with no errors. This will be verified in Step 2.3 when the application rebuilds successfully.
+
+Step 2.2: Add Encrypt and Decrypt Routes
+Update SecureRouteBuilder.java to add two new endpoints: /api/user/encrypt (encrypts submitted text) and /api/admin/decrypt (decrypts previously encrypted text). Replace the file with this complete version:
+
+nano src/main/java/com/example/security/SecureRouteBuilder.java
+package com.example.security;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.model.rest.RestBindingMode;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SecureRouteBuilder extends RouteBuilder {
+
+    @Autowired
+    private EncryptionService encryptionService;
+
+    @Override
+    public void configure() throws Exception {
+
+        onException(Exception.class)
+            .handled(true)
+            .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(400))
+            .setBody(constant("{\"error\": \"Request could not be processed\"}"));
+
+        restConfiguration()
+            .component("servlet")
+            .bindingMode(RestBindingMode.json)
+            .dataFormatProperty("prettyPrint", "true");
+
+        rest("/api/public")
+            .get("/health")
+                .to("direct:health-check");
+
+        rest("/api/user")
+            .get("/profile")
+                .to("direct:user-profile")
+            .post("/encrypt")
+                .consumes("text/plain")
+                .to("direct:encrypt-data");
+
+        rest("/api/admin")
+            .get("/users")
+                .to("direct:admin-users")
+            .post("/decrypt")
+                .consumes("text/plain")
+                .to("direct:decrypt-data");
+
+        from("direct:health-check")
+            .setBody(constant("{\"status\": \"UP\"}"))
+            .log("Health check requested");
+
+        from("direct:user-profile")
+            .setBody(constant("{\"username\": \"user\", \"role\": \"USER\"}"))
+            .log("User profile requested");
+
+        from("direct:admin-users")
+            .setBody(constant("{\"users\": [\"admin\", \"user\"]}"))
+            .log("Admin users list requested");
+
+        from("direct:encrypt-data")
+            .process(exchange -> {
+                String inputData = exchange.getIn().getBody(String.class);
+                String encryptedData = encryptionService.encrypt(inputData);
+                exchange.getIn().setBody("{\"encryptedData\": \"" + encryptedData + "\"}");
+            })
+            .log("Data encrypted successfully");
+
+        from("direct:decrypt-data")
+            .process(exchange -> {
+                String encryptedData = exchange.getIn().getBody(String.class);
+                String decryptedData = encryptionService.decrypt(encryptedData);
+                exchange.getIn().setBody("{\"decryptedData\": \"" + decryptedData + "\"}");
+            })
+            .log("Data decrypted successfully");
+    }
+}
+Deliverable for Step 2.2: The updated route file compiles and exposes POST /api/user/encrypt and POST /api/admin/decrypt.
+
+Step 2.3: Rebuild, Restart, and Test Encryption
+Stop the running application (Ctrl+C in the terminal running mvn spring-boot:run), then rebuild and restart:
+
+mvn clean spring-boot:run
+Once the console shows Tomcat started on port(s): 8080, run the encryption test in a second terminal:
+
+curl -s -u user:user123 \
+  -H "Content-Type: text/plain" \
+  --data-raw "Account number 123456789" \
+  http://localhost:8080/api/user/encrypt
+Expected output (Base64 string will differ each time due to the random IV):
+
+{"encryptedData": "5x9k2m8Qz...base64text...=="}
+Copy the value of encryptedData from the response, then decrypt it using the admin endpoint:
+
+curl -s -u admin:admin123 \
+  -H "Content-Type: text/plain" \
+  --data-raw "PASTE_ENCRYPTED_DATA_HERE" \
+  http://localhost:8080/api/admin/decrypt
+Expected output:
+
+{"decryptedData": "Account number 123456789"}
+Deliverable for Task 2: A round trip where plaintext submitted to /api/user/encrypt produces a Base64 ciphertext, and submitting that exact ciphertext to /api/admin/decrypt returns the original plaintext unchanged.
+
+Expected Outcomes
+A running Camel-on-Spring-Boot application where public, user, and admin endpoints enforce distinct access levels via HTTP Basic Authentication with real password verification
+Confirmed rejection (HTTP 401/403) of missing, incorrect, or insufficiently privileged credentials
+A working AES encryption/decryption round trip performed inside Camel routes, with sensitive data never stored or logged in plaintext
+Troubleshooting
+Error: Invalid AES key length or java.security.InvalidKeyException: Invalid key length when calling /api/user/encrypt Fix: Confirm app.security.encryption.key in application.yml is exactly 16 characters (for AES-128). Count the characters and adjust, then restart with mvn clean spring-boot:run.
+
+Error: curl: (7) Failed to connect to localhost port 8080: Connection refused Fix: The application has not finished starting or is not running. Re-run mvn spring-boot:run in a dedicated terminal and wait for the Tomcat started on port(s): 8080 log line before testing in another terminal.
+
+Error: HTTP 401 Unauthorized returned even with correct-looking credentials Fix: Verify the -u flag uses the exact case-sensitive username and password (user:user123 or admin:admin123) with no extra spaces, and that the request targets http://localhost:8080 not https://.
+
+Conclusion
+In this lab, students built a secure Apache Camel application on Spring Boot that enforces HTTP Basic Authentication with genuine, Spring Security-verified password checks, applies role-based authorization across public, user, and admin endpoints, and performs AES-based encryption and decryption of sensitive data directly within Camel routes. By testing each endpoint with valid, invalid, and insufficiently privileged credentials, students confirmed that authentication and authorization controls actually reject unauthorized access rather than merely appearing to. These practices, credential verification, least-privilege route access, and encryption of sensitive payloads, form a foundation for securing integration flows in real enterprise Camel deployments.

@@ -1,0 +1,26 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: secure-camel-routes
+
+camel:
+  springboot:
+    name: SecureCamelApp
+  rest:
+    component: servlet
+    binding-mode: json
+    data-format-property:
+      prettyPrint: true
+
+app:
+  security:
+    encryption:
+      key: MySecretKey12345
+
+logging:
+  level:
+    org.apache.camel: INFO
+    org.springframework.security: WARN
+    com.example: INFO
